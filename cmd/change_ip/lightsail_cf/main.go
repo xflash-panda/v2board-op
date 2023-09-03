@@ -15,7 +15,7 @@ import (
 
 const (
 	Name                       = "change-ip(lightsail-cf)"
-	Version                    = "0.1.2"
+	Version                    = "0.1.3"
 	CopyRight                  = "XFLASH-PANDA@2023"
 	LogLevelDebug              = "debug"
 	LogLevelError              = "error"
@@ -205,7 +205,7 @@ func main() {
 					log.Fatalf("monitor initialization failure :%s", err)
 				}
 
-				log.Infof("job execution times: %d\n", tryNum)
+				log.Infof("job execution times: %d", tryNum)
 				rerunStatus, runErr := lightsailCFJob.Run()
 				log.Infoln("job execution completed")
 				if runErr != nil {

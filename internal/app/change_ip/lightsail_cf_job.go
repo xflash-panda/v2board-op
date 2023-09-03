@@ -104,7 +104,7 @@ func (m *LightsailCFJob) initInstances() error {
 			m.instances.Store(*instance.PublicIpAddress, instance)
 		}
 	}
-	log.Infof("Get %d VPS instances\n", len(instancesOutput.Instances))
+	log.Infof("Get %d VPS instances", len(instancesOutput.Instances))
 	return nil
 }
 
@@ -125,7 +125,7 @@ func (m *LightsailCFJob) initStaticIps() error {
 		}
 	}
 
-	log.Infof("Get %d static ips\n", len(staticIpsOutput.StaticIps))
+	log.Infof("Get %d static ips", len(staticIpsOutput.StaticIps))
 	return nil
 }
 
@@ -156,7 +156,7 @@ func (m *LightsailCFJob) initDnsRecords() error {
 		Type: "A",
 	})
 
-	log.Infof("Get %d DNS records\n", len(records))
+	log.Infof("Get %d DNS records", len(records))
 
 	if err != nil {
 		return fmt.Errorf("init dns records error: %s", err)
@@ -200,32 +200,32 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 	}
 
 	m.stats.total = bannedListLen
-	log.Infof("Found %d walled hosts\n", bannedListLen)
+	log.Infof("Found %d walled hosts", bannedListLen)
 	for _, bannedItem := range bannedList {
-		log.Infof("current banned host: %s\n", bannedItem)
+		log.Infof("current banned host: %s", bannedItem)
 		instance, ok := m.instances.Load(bannedItem.IP)
 		if !ok {
 			m.stats.skip++
-			log.Errorf("No instance found, %s \n", bannedItem)
+			log.Errorf("No instance found, %s ", bannedItem)
 			continue
 		}
-		log.Infof("found instance: %s\n", bannedItem)
+		log.Infof("found instance: %s", bannedItem)
 
 		newIp, err := m.processInstance(instance.(types.Instance))
 		if err != nil {
-			log.Errorf("Process instance failed: %s\n", err)
+			log.Errorf("Process instance failed: %s", err)
 			m.stats.skip++
 			continue
 		}
 
-		log.Infof("%s Getting a new ip: %s\n", bannedItem, *newIp)
+		log.Infof("%s Getting a new ip: %s", bannedItem, *newIp)
 		pingResult, err := m.testPing(*newIp, bannedItem.Port, defaultPingTryNum)
 		if err != nil {
-			log.Errorf("Test ping failed: %s\n", err)
+			log.Errorf("Test ping failed: %s", err)
 			m.stats.skip++
 			continue
 		}
-		log.Infof("Ip %s ping result is %v\n ", *newIp, pingResult)
+		log.Infof("Ip %s ping result is %v ", *newIp, pingResult)
 
 		if pingResult {
 			m.stats.success++
@@ -235,7 +235,7 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 
 		err = m.changeIp(bannedItem, newIp, pingResult)
 		if err != nil {
-			log.Errorf("Change ip error: %s\n", err)
+			log.Errorf("Change ip error: %s", err)
 			m.stats.skip++
 			continue
 		}
@@ -244,11 +244,11 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		api, _ := m.cloudflareSrv.GetAPI()
 		if ok {
 			if err = api.DeleteDNSRecord(context.TODO(), cloudflare.ZoneIdentifier(m.dnsZoneId), record.(*cloudflare.DNSRecord).ID); err != nil {
-				log.Errorf("Delete dns record error: %s\n", err)
+				log.Errorf("Delete dns record error: %s", err)
 				m.stats.skip++
 				continue
 			}
-			log.Infof("delete dns record %s : %s\n", m.conf.Domain, bannedItem.IP)
+			log.Infof("delete dns record %s : %s", m.conf.Domain, bannedItem.IP)
 		}
 
 		_, err = api.CreateDNSRecord(context.TODO(), cloudflare.ZoneIdentifier(m.dnsZoneId), cloudflare.CreateDNSRecordParams{
@@ -259,11 +259,11 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		})
 
 		if err != nil {
-			log.Errorf("Add dns record  %s : %s error: %s\n", m.conf.Domain, *newIp, err)
+			log.Errorf("Add dns record  %s : %s error: %s", m.conf.Domain, *newIp, err)
 			m.stats.skip++
 			continue
 		}
-		log.Infof("Add dns record %s : %s\n", m.conf.Domain, *newIp)
+		log.Infof("Add dns record %s : %s", m.conf.Domain, *newIp)
 
 	}
 
@@ -280,7 +280,7 @@ func (m *LightsailCFJob) testPing(host string, port int, tryNum int) (bool, erro
 	for i < tryNum {
 		pingResult, err := m.apiClient.TestPing(host, port)
 		i++
-		log.Infof("Host %s:%d  ping result is %v \n %d times\n", host, port, pingResult, i)
+		log.Infof("Host %s:%d  ping result is %v  %d times", host, port, pingResult, i)
 		if err != nil {
 			return false, err
 		}
@@ -298,17 +298,17 @@ func (m *LightsailCFJob) changeIp(bannedItem *api.BannedHostInfo, newIp Ip, ping
 }
 
 func (m *LightsailCFJob) processInstance(instance types.Instance) (newIP *string, err error) {
-	log.Infof("process instance {name: %s, ip:%s}\n", *instance.Name, *instance.PublicIpAddress)
+	log.Infof("process instance {name: %s, ip:%s}", *instance.Name, *instance.PublicIpAddress)
 	if *instance.IsStaticIp {
-		log.Infof("{name: %s, ip:%s} must be release static ip\n", *instance.Name, *instance.PublicIpAddress)
+		log.Infof("{name: %s, ip:%s} must be release static ip", *instance.Name, *instance.PublicIpAddress)
 		return m.processInstanceReleaseStaticIp(instance)
 	}
 	//Allocate Static Ip
 	if m.lenStaticIps() >= service.LightsailMaxStaticIp {
-		log.Infof("{name: %s, ip:%s} must be restart to get new IP\n", *instance.Name, *instance.PublicIpAddress)
+		log.Infof("{name: %s, ip:%s} must be restart to get new IP", *instance.Name, *instance.PublicIpAddress)
 		return m.processInstanceMustRestart(instance)
 	}
-	log.Infof("{name: %s, ip:%s} need to allocate a new static IP\n", *instance.Name, *instance.PublicIpAddress)
+	log.Infof("{name: %s, ip:%s} need to allocate a new static IP", *instance.Name, *instance.PublicIpAddress)
 	return m.processInstanceAllocateStaticIp(instance)
 }
 
@@ -316,7 +316,7 @@ func (m *LightsailCFJob) processInstanceReleaseStaticIp(instance types.Instance)
 	lightsailClient, _ := m.lightsailSrv.GetClient()
 	staticIp, ok := m.staticIps.Load(*instance.PublicIpAddress)
 	if !ok {
-		return nil, fmt.Errorf("No static ip found, %s \n", *instance.PublicIpAddress)
+		return nil, fmt.Errorf("No static ip found, %s ", *instance.PublicIpAddress)
 	}
 	staticIpName := staticIp.(types.StaticIp).Name
 	_, err = lightsailClient.DetachStaticIp(context.TODO(), &lightsail.DetachStaticIpInput{StaticIpName: staticIpName})
@@ -366,7 +366,7 @@ func (m *LightsailCFJob) processInstanceMustRestart(instance types.Instance) (ne
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("{name: %s} is stoping\n", *instance.Name)
+	log.Infof("{name: %s} is stoping", *instance.Name)
 	stateName := ""
 	for stateName != "stopped" {
 		stateOutput, err := lightsailClient.GetInstanceState(context.TODO(), &lightsail.GetInstanceStateInput{
@@ -376,16 +376,16 @@ func (m *LightsailCFJob) processInstanceMustRestart(instance types.Instance) (ne
 			return nil, err
 		}
 		stateName = *stateOutput.State.Name
-		log.Infof("{name: %s} state is %s\n", *instance.Name, *stateOutput.State.Name)
+		log.Infof("{name: %s} state is %s", *instance.Name, *stateOutput.State.Name)
 		time.Sleep(defaultSleepTime)
 	}
-	log.Infof("{name: %s} is stopped\n", *instance.Name)
+	log.Infof("{name: %s} is stopped", *instance.Name)
 	_, err = lightsailClient.StartInstance(context.TODO(), &lightsail.StartInstanceInput{InstanceName: instance.Name})
 	if err != nil {
 		return nil, err
 	}
 
-	log.Infof("{name: %s} is starting\n", *instance.Name)
+	log.Infof("{name: %s} is starting", *instance.Name)
 	for stateName != "running" {
 		stateOutput, err := lightsailClient.GetInstanceState(context.TODO(), &lightsail.GetInstanceStateInput{
 			InstanceName: instance.Name,
@@ -394,10 +394,10 @@ func (m *LightsailCFJob) processInstanceMustRestart(instance types.Instance) (ne
 			return nil, err
 		}
 		stateName = *stateOutput.State.Name
-		log.Infof("{name: %s, ip:%s} state is %s\n", *instance.Name, *instance.PublicIpAddress, *stateOutput.State.Name)
+		log.Infof("{name: %s, ip:%s} state is %s", *instance.Name, *instance.PublicIpAddress, *stateOutput.State.Name)
 		time.Sleep(defaultSleepTime)
 	}
-	log.Infof("{name: %s} is running\n", *instance.Name)
+	log.Infof("{name: %s} is running", *instance.Name)
 
 	instanceOutput, err := lightsailClient.GetInstance(context.TODO(), &lightsail.GetInstanceInput{InstanceName: instance.Name})
 	if err != nil {
