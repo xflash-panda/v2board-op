@@ -196,7 +196,7 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 	bannedListLen := len(bannedList)
 	if bannedListLen == 0 {
 		log.Infoln("banned list is empty")
-		return true, nil
+		return false, nil
 	}
 
 	m.stats.total = bannedListLen
