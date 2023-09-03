@@ -15,7 +15,7 @@ import (
 
 const (
 	Name                       = "change-ip(lightsail-cf)"
-	Version                    = "0.1.1"
+	Version                    = "0.1.2"
 	CopyRight                  = "XFLASH-PANDA@2023"
 	LogLevelDebug              = "debug"
 	LogLevelError              = "error"
@@ -157,8 +157,12 @@ func main() {
 		Action: func(c *cli.Context) error {
 			log.Debugln("api host: ", apiConfig.APIHost)
 			log.Debugln("api token: ", apiConfig.Token)
-			log.Debugln("aws key: ", lightsailSrvConfig.Key)
-			log.Debugln("aws secret: ", lightsailSrvConfig.Secret)
+			if len(lightsailSrvConfig.Key) > 0 {
+				log.Debugln("aws key: ", lightsailSrvConfig.Key)
+			}
+			if len(lightsailSrvConfig.Secret) > 0 {
+				log.Debugln("aws secret: ", lightsailSrvConfig.Secret)
+			}
 			log.Debugln("cloudflare email: ", cloudflreSrvConfig.Email)
 			log.Debugln("max num: ", jobMaxTryNum)
 			log.Debugln("server query tags: ", serverQueryTags)
@@ -203,13 +207,13 @@ func main() {
 
 				log.Infof("job execution times: %d\n", tryNum)
 				rerunStatus, runErr := lightsailCFJob.Run()
+				log.Infoln("job execution completed")
 				if runErr != nil {
 					log.Fatal(runErr)
 				}
 				if rerunStatus == false {
 					break
 				}
-				log.Infoln("job execution completed")
 			}
 
 			return nil
