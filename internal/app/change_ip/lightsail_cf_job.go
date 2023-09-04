@@ -276,9 +276,10 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 
 func (m *LightsailCFJob) testPing(host string, port int, tryNum int) (bool, error) {
 	i := 0
-	var pingResult bool
+	var pingResult api.PingResult
+	var err error
 	for i < tryNum {
-		pingResult, err := m.apiClient.TestPing(host, port)
+		pingResult, err = m.apiClient.TestPing(host, port)
 		i++
 		log.Infof("Host %s:%d  ping result is %v  %d times", host, port, pingResult, i)
 		if err != nil {
@@ -289,8 +290,7 @@ func (m *LightsailCFJob) testPing(host string, port int, tryNum int) (bool, erro
 		}
 		time.Sleep(defaultSleepTime)
 	}
-
-	return pingResult, nil
+	return bool(pingResult), nil
 }
 
 func (m *LightsailCFJob) changeIp(bannedItem *api.BannedHostInfo, newIp Ip, pingResult bool) error {
