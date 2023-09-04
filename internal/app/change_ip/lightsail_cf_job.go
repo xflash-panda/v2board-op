@@ -135,12 +135,12 @@ func (m *LightsailCFJob) initDnsRecords() error {
 		return fmt.Errorf("init dns records error: %s", err)
 	}
 
-	api, err := m.cloudflareSrv.GetAPI()
+	dnsClient, err := m.cloudflareSrv.GetAPI()
 	if err != nil {
 		return fmt.Errorf("init dns records error: %s", err)
 	}
 
-	zones, err := api.ListZones(context.TODO(), rootDomain)
+	zones, err := dnsClient.ListZones(context.TODO(), rootDomain)
 	if err != nil {
 		return fmt.Errorf("init dns records error: %s", err)
 	}
@@ -151,7 +151,7 @@ func (m *LightsailCFJob) initDnsRecords() error {
 
 	zoneId := zones[0].ID
 	m.dnsZoneId = zoneId
-	records, _, err := api.ListDNSRecords(context.TODO(), cloudflare.ZoneIdentifier(zoneId), cloudflare.ListDNSRecordsParams{
+	records, _, err := dnsClient.ListDNSRecords(context.TODO(), cloudflare.ZoneIdentifier(zoneId), cloudflare.ListDNSRecordsParams{
 		Name: m.conf.Domain,
 		Type: "A",
 	})
@@ -241,17 +241,17 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		}
 		log.Infoln("change ip success")
 		record, ok := m.dnsRecords.Load(bannedItem.IP)
-		api, _ := m.cloudflareSrv.GetAPI()
+		dnsClient, _ := m.cloudflareSrv.GetAPI()
 		if ok {
-			if err = api.DeleteDNSRecord(context.TODO(), cloudflare.ZoneIdentifier(m.dnsZoneId), record.(*cloudflare.DNSRecord).ID); err != nil {
-				log.Errorf("Delete dns record error: %s", err)
+			if err = dnsClient.DeleteDNSRecord(context.TODO(), cloudflare.ZoneIdentifier(m.dnsZoneId), record.(*cloudflare.DNSRecord).ID); err != nil {
+				log.Warnf("Delete dns record error: %s", err)
 				m.stats.skip++
-				continue
+			} else {
+				log.Infof("delete dns record %s : %s", m.conf.Domain, bannedItem.IP)
 			}
-			log.Infof("delete dns record %s : %s", m.conf.Domain, bannedItem.IP)
 		}
 
-		_, err = api.CreateDNSRecord(context.TODO(), cloudflare.ZoneIdentifier(m.dnsZoneId), cloudflare.CreateDNSRecordParams{
+		_, err = dnsClient.CreateDNSRecord(context.TODO(), cloudflare.ZoneIdentifier(m.dnsZoneId), cloudflare.CreateDNSRecordParams{
 			Type:    "A",
 			Name:    m.conf.Domain,
 			Content: *newIp,
@@ -259,11 +259,11 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		})
 
 		if err != nil {
-			log.Errorf("Add dns record  %s : %s error: %s", m.conf.Domain, *newIp, err)
+			log.Warnf("Add dns record  %s : %s error: %s", m.conf.Domain, *newIp, err)
 			m.stats.skip++
-			continue
+		} else {
+			log.Infof("Add dns record %s : %s", m.conf.Domain, *newIp)
 		}
-		log.Infof("Add dns record %s : %s", m.conf.Domain, *newIp)
 
 	}
 
