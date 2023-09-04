@@ -16,7 +16,7 @@ import (
 
 const (
 	defaultPingTryNum = 5
-	defaultSleepTime  = 5 * time.Second
+	defaultSleepTime  = 15 * time.Second
 )
 
 type Ip *string
@@ -223,7 +223,6 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		if err != nil {
 			log.Errorf("Test ping failed: %s", err)
 			m.stats.skip++
-			continue
 		}
 		log.Infof("Ip %s ping result is %v ", *newIp, pingResult)
 
@@ -237,7 +236,6 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		if err != nil {
 			log.Errorf("Change ip error: %s", err)
 			m.stats.skip++
-			continue
 		}
 		log.Infoln("change ip success")
 		record, ok := m.dnsRecords.Load(bannedItem.IP)
