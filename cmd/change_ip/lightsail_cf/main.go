@@ -15,7 +15,7 @@ import (
 
 const (
 	Name                       = "change-ip(lightsail-cf)"
-	Version                    = "0.1.6"
+	Version                    = "0.1.7"
 	CopyRight                  = "XFLASH-PANDA@2023"
 	LogLevelDebug              = "debug"
 	LogLevelError              = "error"
@@ -202,7 +202,7 @@ func main() {
 				tryNum++
 				lightsailCFJob := change_ip.NewLightsailCFJob(&lightsailCFJobConfig, apiClient, lightSailSrv, cloudflareSrv)
 				if err := lightsailCFJob.Init(); err != nil {
-					log.Fatalf("monitor initialization failure :%s", err)
+					log.Fatalf("job initialization failure :%s", err)
 				}
 
 				log.Infof("job execution times: %d", tryNum)

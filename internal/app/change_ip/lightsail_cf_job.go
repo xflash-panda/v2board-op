@@ -16,10 +16,12 @@ import (
 
 const (
 	defaultPingTryNum = 5
-	defaultSleepTime  = 15 * time.Second
+	defaultSleepTime  = 8 * time.Second
 )
 
 type Ip *string
+
+var emptyIp string
 
 type LightsailCFJobConfig struct {
 	QueryTags []string
@@ -30,7 +32,6 @@ type LightsailJobStats struct {
 	total   int
 	success int
 	fail    int
-	skip    int
 }
 
 func (conf *LightsailCFJobConfig) check() error {
@@ -63,12 +64,12 @@ type LightsailCFJob struct {
 }
 
 func NewLightsailCFJob(conf *LightsailCFJobConfig, apiClient *api.Client, lightsailSrv *service.LightSailService, cloudflareSrv *service.CloudflareService) *LightsailCFJob {
-	stats := &LightsailJobStats{0, 0, 0, 0}
+	stats := &LightsailJobStats{0, 0, 0}
 	return &LightsailCFJob{conf: conf, apiClient: apiClient, lightsailSrv: lightsailSrv, cloudflareSrv: cloudflareSrv, stats: stats}
 }
 
 func (m *LightsailCFJob) Init() error {
-	log.Infoln("Monitor is initializing")
+	log.Infoln("job is initializing")
 	if err := m.conf.check(); err != nil {
 		return err
 	}
@@ -84,7 +85,7 @@ func (m *LightsailCFJob) Init() error {
 		return err
 	}
 
-	log.Infoln("Monitor initialization completed")
+	log.Infoln("job initialization completed")
 	return nil
 }
 
@@ -163,7 +164,7 @@ func (m *LightsailCFJob) initDnsRecords() error {
 	}
 
 	for _, record := range records {
-		m.dnsRecords.Store(record.Content, &record)
+		m.dnsRecords.Store(record.Content, record)
 	}
 	return nil
 }
@@ -205,16 +206,33 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		log.Infof("current banned host: %s", bannedItem)
 		instance, ok := m.instances.Load(bannedItem.IP)
 		if !ok {
-			m.stats.skip++
 			log.Errorf("No instance found, %s ", bannedItem)
+			err = m.dropDnsRecord(bannedItem.IP)
+			if err != nil {
+				log.Error(err)
+			}
+			err = m.changeIp(bannedItem, emptyIp, true)
+			if err != nil {
+				log.Error(err)
+			}
 			continue
 		}
 		log.Infof("found instance: %s", bannedItem)
 
+		checkPingResult, err := m.testPing(bannedItem.IP, bannedItem.Port, defaultPingTryNum)
+		if err != nil {
+			log.Errorf("check ping error, %s", err)
+			continue
+		}
+		log.Infof("Check ping result: %v", checkPingResult)
+		if checkPingResult {
+			m.changeIp(bannedItem, bannedItem.IP, checkPingResult)
+			continue
+		}
+
 		newIp, err := m.processInstance(instance.(types.Instance))
 		if err != nil {
 			log.Errorf("Process instance failed: %s", err)
-			m.stats.skip++
 			continue
 		}
 
@@ -222,7 +240,6 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		pingResult, err := m.testPing(*newIp, bannedItem.Port, defaultPingTryNum)
 		if err != nil {
 			log.Errorf("Test ping failed: %s", err)
-			m.stats.skip++
 		}
 		log.Infof("Ip %s ping result is %v ", *newIp, pingResult)
 
@@ -232,33 +249,21 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 			m.stats.fail++
 		}
 
-		err = m.changeIp(bannedItem, newIp, pingResult)
+		err = m.changeIp(bannedItem, *newIp, pingResult)
 		if err != nil {
 			log.Errorf("Change ip error: %s", err)
-			m.stats.skip++
 		}
 		log.Infoln("change ip success")
-		record, ok := m.dnsRecords.Load(bannedItem.IP)
-		dnsClient, _ := m.cloudflareSrv.GetAPI()
 		if ok {
-			if err = dnsClient.DeleteDNSRecord(context.TODO(), cloudflare.ZoneIdentifier(m.dnsZoneId), record.(*cloudflare.DNSRecord).ID); err != nil {
-				log.Warnf("Delete dns record error: %s", err)
-				m.stats.skip++
+			if err = m.dropDnsRecord(bannedItem.IP); err != nil {
+				log.Error(err)
 			} else {
-				log.Infof("delete dns record %s : %s", m.conf.Domain, bannedItem.IP)
+				log.Infof("delete dns record {%s: %s}", m.conf.Domain, bannedItem.IP)
 			}
 		}
-
-		_, err = dnsClient.CreateDNSRecord(context.TODO(), cloudflare.ZoneIdentifier(m.dnsZoneId), cloudflare.CreateDNSRecordParams{
-			Type:    "A",
-			Name:    m.conf.Domain,
-			Content: *newIp,
-			TTL:     60,
-		})
-
+		err = m.createDnsRecord(*newIp)
 		if err != nil {
-			log.Warnf("Add dns record  %s : %s error: %s", m.conf.Domain, *newIp, err)
-			m.stats.skip++
+			log.Error(err)
 		} else {
 			log.Infof("Add dns record %s : %s", m.conf.Domain, *newIp)
 		}
@@ -270,6 +275,37 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 	}
 
 	return false, nil
+}
+
+func (m *LightsailCFJob) dropDnsRecord(ip string) error {
+	dnsClient, _ := m.cloudflareSrv.GetAPI()
+	record, ok := m.dnsRecords.Load(ip)
+	if !ok {
+		return fmt.Errorf("not found %s dns record from cache", ip)
+	}
+	err := dnsClient.DeleteDNSRecord(context.TODO(), cloudflare.ZoneIdentifier(m.dnsZoneId), record.(cloudflare.DNSRecord).ID)
+	if err != nil {
+		return fmt.Errorf("delete dns {%s - %s: %s} record error: %s", m.dnsZoneId, record.(cloudflare.DNSRecord).Name, record.(cloudflare.DNSRecord).Content, err)
+	}
+	return nil
+}
+
+func (m *LightsailCFJob) createDnsRecord(ip string) error {
+	dnsClient, _ := m.cloudflareSrv.GetAPI()
+	if len(m.dnsZoneId) == 0 {
+		return fmt.Errorf("uninitialized region ID")
+	}
+	_, err := dnsClient.CreateDNSRecord(context.TODO(), cloudflare.ZoneIdentifier(m.dnsZoneId), cloudflare.CreateDNSRecordParams{
+		Type:    "A",
+		Name:    m.conf.Domain,
+		Content: ip,
+		TTL:     60,
+	})
+
+	if err != nil {
+		return fmt.Errorf("Add dns record  %s : %s error: %s", m.conf.Domain, ip, err)
+	}
+	return nil
 }
 
 func (m *LightsailCFJob) testPing(host string, port int, tryNum int) (bool, error) {
@@ -291,22 +327,22 @@ func (m *LightsailCFJob) testPing(host string, port int, tryNum int) (bool, erro
 	return bool(pingResult), nil
 }
 
-func (m *LightsailCFJob) changeIp(bannedItem *api.BannedHostInfo, newIp Ip, pingResult bool) error {
-	return m.apiClient.ChangeIP(bannedItem.Type, bannedItem.ID, bannedItem.IP, *newIp, !pingResult)
+func (m *LightsailCFJob) changeIp(bannedItem *api.BannedHostInfo, newIp string, pingResult bool) error {
+	return m.apiClient.ChangeIP(bannedItem.Type, bannedItem.ID, bannedItem.IP, newIp, !pingResult)
 }
 
 func (m *LightsailCFJob) processInstance(instance types.Instance) (newIP *string, err error) {
-	log.Infof("process instance {name: %s, ip:%s}", *instance.Name, *instance.PublicIpAddress)
+	log.Infof("process instance {name: %s, ip: %s}", *instance.Name, *instance.PublicIpAddress)
 	if *instance.IsStaticIp {
-		log.Infof("{name: %s, ip:%s} must be release static ip", *instance.Name, *instance.PublicIpAddress)
+		log.Infof("{name: %s, ip: %s} must be release static ip", *instance.Name, *instance.PublicIpAddress)
 		return m.processInstanceReleaseStaticIp(instance)
 	}
 	//Allocate Static Ip
 	if m.lenStaticIps() >= service.LightsailMaxStaticIp {
-		log.Infof("{name: %s, ip:%s} must be restart to get new IP", *instance.Name, *instance.PublicIpAddress)
+		log.Infof("{name: %s, ip: %s} must be restart to get new IP", *instance.Name, *instance.PublicIpAddress)
 		return m.processInstanceMustRestart(instance)
 	}
-	log.Infof("{name: %s, ip:%s} need to allocate a new static IP", *instance.Name, *instance.PublicIpAddress)
+	log.Infof("{name: %s, ip: %s} need to allocate a new static IP", *instance.Name, *instance.PublicIpAddress)
 	return m.processInstanceAllocateStaticIp(instance)
 }
 
@@ -392,7 +428,7 @@ func (m *LightsailCFJob) processInstanceMustRestart(instance types.Instance) (ne
 			return nil, err
 		}
 		stateName = *stateOutput.State.Name
-		log.Infof("{name: %s, ip:%s} state is %s", *instance.Name, *instance.PublicIpAddress, *stateOutput.State.Name)
+		log.Infof("{name: %s, ip: %s} state is %s", *instance.Name, *instance.PublicIpAddress, *stateOutput.State.Name)
 		time.Sleep(defaultSleepTime)
 	}
 	log.Infof("{name: %s} is running", *instance.Name)
