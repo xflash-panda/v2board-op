@@ -15,7 +15,7 @@ import (
 
 const (
 	Name                       = "change-ip(lightsail-cf)"
-	Version                    = "0.1.7"
+	Version                    = "0.1.8"
 	CopyRight                  = "XFLASH-PANDA@2023"
 	LogLevelDebug              = "debug"
 	LogLevelError              = "error"

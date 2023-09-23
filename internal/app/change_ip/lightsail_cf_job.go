@@ -7,9 +7,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
 	"github.com/cloudflare/cloudflare-go"
 	log "github.com/sirupsen/logrus"
+	"github.com/theckman/go-flock"
 	"github.com/xflash-panda/v2board-op/internal/pkg/api"
 	"github.com/xflash-panda/v2board-op/internal/pkg/service"
 	"github.com/xflash-panda/v2board-op/internal/pkg/util"
+	"strings"
 	"sync"
 	"time"
 )
@@ -59,13 +61,15 @@ type LightsailCFJob struct {
 	instances     sync.Map
 	staticIps     sync.Map
 	dnsRecords    sync.Map
-	access        sync.Mutex
+	lock          *flock.Flock
 	stats         *LightsailJobStats
 }
 
 func NewLightsailCFJob(conf *LightsailCFJobConfig, apiClient *api.Client, lightsailSrv *service.LightSailService, cloudflareSrv *service.CloudflareService) *LightsailCFJob {
 	stats := &LightsailJobStats{0, 0, 0}
-	return &LightsailCFJob{conf: conf, apiClient: apiClient, lightsailSrv: lightsailSrv, cloudflareSrv: cloudflareSrv, stats: stats}
+	lockPath := fmt.Sprintf("/tmp/change_ip_%s.lock", strings.Replace(conf.Domain, ".", "_", -1))
+	lock := flock.New(lockPath)
+	return &LightsailCFJob{conf: conf, apiClient: apiClient, lightsailSrv: lightsailSrv, cloudflareSrv: cloudflareSrv, stats: stats, lock: lock}
 }
 
 func (m *LightsailCFJob) Init() error {
@@ -185,8 +189,11 @@ func (m *LightsailCFJob) reloadDnsRecords() error {
 }
 
 func (m *LightsailCFJob) Run() (rerunState bool, err error) {
-	m.access.Lock()
-	defer m.access.Unlock()
+	locked, _ := m.lock.TryLock()
+	if !locked {
+		return false, fmt.Errorf("%s(%s)", "the program is running, please release the lock file", m.lock.Path())
+	}
+	defer m.lock.Unlock()
 	log.Infoln("Job is running")
 
 	bannedList, err := m.apiClient.QueryBannedList(m.conf.QueryTags)
