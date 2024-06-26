@@ -46,7 +46,7 @@ func (conf *LightsailCFJobConfig) check() error {
 		return fmt.Errorf("configuration error: %s", "domain is empty")
 	}
 
-	if util.IsValidDomain(conf.Domain) == false {
+	if !util.IsValidDomain(conf.Domain) {
 		return fmt.Errorf("configuration error: %s", "invalid domain name")
 	}
 	return nil
@@ -173,27 +173,19 @@ func (m *LightsailCFJob) initDnsRecords() error {
 	return nil
 }
 
-func (m *LightsailCFJob) reloadInstances() error {
-	m.instances = sync.Map{}
-	return m.initInstances()
-}
-
-func (m *LightsailCFJob) reloadStaticIps() error {
-	m.staticIps = sync.Map{}
-	return m.initStaticIps()
-}
-
-func (m *LightsailCFJob) reloadDnsRecords() error {
-	m.staticIps = sync.Map{}
-	return m.initDnsRecords()
-}
-
 func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 	locked, _ := m.lock.TryLock()
 	if !locked {
 		return false, fmt.Errorf("%s(%s)", "the program is running, please release the lock file", m.lock.Path())
 	}
-	defer m.lock.Unlock()
+
+	defer func() {
+		// 假设Unlock返回了一个错误
+		if err := m.lock.Unlock(); err != nil {
+			// 处理错误
+			log.Printf("failed to unlock: %v", err)
+		}
+	}()
 	log.Infoln("Job is running")
 
 	bannedList, err := m.apiClient.QueryBannedList(m.conf.QueryTags)
@@ -233,7 +225,8 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		}
 		log.Infof("Check ping result: %v", checkPingResult)
 		if checkPingResult {
-			m.changeIp(bannedItem, bannedItem.IP, checkPingResult)
+			err = m.changeIp(bannedItem, bannedItem.IP, checkPingResult)
+			log.Errorf("Change ip error: %s", err)
 			continue
 		}
 
@@ -451,24 +444,6 @@ func (m *LightsailCFJob) processInstanceMustRestart(instance types.Instance) (ne
 func (m *LightsailCFJob) lenStaticIps() int {
 	i := 0
 	m.staticIps.Range(func(k, v interface{}) bool {
-		i++
-		return true
-	})
-	return i
-}
-
-func (m *LightsailCFJob) lenInstances() int {
-	i := 0
-	m.instances.Range(func(k, v interface{}) bool {
-		i++
-		return true
-	})
-	return i
-}
-
-func (m *LightsailCFJob) lenDnsRecords() int {
-	i := 0
-	m.dnsRecords.Range(func(k, v interface{}) bool {
 		i++
 		return true
 	})

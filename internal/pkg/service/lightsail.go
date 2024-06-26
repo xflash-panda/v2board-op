@@ -49,8 +49,7 @@ func (s *LightSailService) GetClient() (*lightsail.Client, error) {
 	var err error
 	var cfg aws.Config
 	if s.conf.isStaticKeySecret() {
-		cfg, err = config.LoadDefaultConfig(context.TODO(), config.WithRegion(s.conf.Region))
-		config.LoadDefaultConfig(context.TODO(), config.WithRegion(s.conf.Region), config.WithCredentialsProvider(
+		cfg, err = config.LoadDefaultConfig(context.TODO(), config.WithRegion(s.conf.Region), config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(s.conf.Key, s.conf.Secret, "")))
 	} else {
 		cfg, err = config.LoadDefaultConfig(context.TODO(), config.WithRegion(s.conf.Region))

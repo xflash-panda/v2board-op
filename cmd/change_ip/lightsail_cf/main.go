@@ -15,7 +15,7 @@ import (
 
 const (
 	Name                       = "change-ip(lightsail-cf)"
-	Version                    = "0.1.8"
+	Version                    = "0.1.9"
 	CopyRight                  = "XFLASH-PANDA@2023"
 	LogLevelDebug              = "debug"
 	LogLevelError              = "error"
@@ -176,7 +176,7 @@ func main() {
 				}()
 			}
 
-			s := make(chan os.Signal)
+			s := make(chan os.Signal, 1)
 			signal.Notify(s, os.Interrupt, syscall.SIGTERM)
 			go func() {
 				for {
@@ -211,7 +211,7 @@ func main() {
 				if runErr != nil {
 					log.Fatal(runErr)
 				}
-				if rerunStatus == false {
+				if !rerunStatus {
 					break
 				}
 			}
