@@ -1,0 +1,46 @@
+services:
+  open-webui-oidc:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui-oidc
+    environment:
+      # 基本配置
+      - HOST=0.0.0.0
+      - PORT=3080
+      - ENABLE_SIGNUP=true
+      - ENABLE_LOGIN_FORM=false
+      - ENV=dev
+
+      # 日志级别配置
+      - GLOBAL_LOG_LEVEL=DEBUG
+
+      # HTTP客户端超时配置
+      #- AIOHTTP_CLIENT_TIMEOUT=600
+
+
+      # OIDC配置
+      - ENABLE_OAUTH_SIGNUP=true
+      - OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true
+      - OAUTH_PROVIDER_NAME=${OAUTH_PROVIDER_NAME:-V2Board}
+      - OPENID_PROVIDER_URL=${OPENID_PROVIDER_URL:-https://your-v2board-domain/.well-known/openid-configuration}
+      - OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID:-your-client-id}
+      - OAUTH_CLIENT_SECRET=${OAUTH_CLIENT_SECRET:-your-client-secret}
+      - OAUTH_SCOPES=openid email profile
+      - OPENID_REDIRECT_URI=${OPENID_REDIRECT_URI:-https://your-openwebui-domain/oauth/oidc/callback}
+
+      # 角色管理配置（可选）
+      - ENABLE_OAUTH_ROLE_MANAGEMENT=${ENABLE_OAUTH_ROLE_MANAGEMENT:-true}
+      - OAUTH_ROLES_CLAIM=${OAUTH_ROLES_CLAIM:-roles}
+      - OAUTH_ALLOWED_ROLES=${OAUTH_ALLOWED_ROLES:-user}
+      - OAUTH_ADMIN_ROLES=${OAUTH_ADMIN_ROLES:-admin}
+
+      # 组管理配置（可选）
+      - ENABLE_OAUTH_GROUP_MANAGEMENT=${ENABLE_OAUTH_GROUP_MANAGEMENT:-true}
+      - OAUTH_GROUP_CLAIM=${OAUTH_GROUP_CLAIM:-groups}
+    volumes:
+      - open-webui:/app/backend/data
+    restart: unless-stopped
+    ports:
+      - "${WEBUI_PORT:-3080}:3080"
+
+volumes:
+  open-webui:

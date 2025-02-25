@@ -1,0 +1,35 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+      # - ENV=dev
+      - ENABLE_SIGNUP=True
+      - WEBUI_AUTH_TRUSTED_EMAIL_HEADER=X-Open-Webui-User-Email
+      - WEBUI_AUTH_TRUSTED_NAME_HEADER=X-Open-Webui-User-Name
+      - WEBUI_AUTH_TRUSTED_ROLE_HEADER=X-Open-Webui-User-Role
+    volumes:
+      - /oprnweb-ui/data:/app/data
+    restart: unless-stopped
+    expose:
+      - "8080"
+    networks:
+      - webui-network
+
+  nginx:
+    container_name: nginx
+    image: nginx:stable-alpine
+    ports:
+      - "3080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - open-webui
+    networks:
+      - webui-network
+
+networks:
+  webui-network:
+    driver: bridge
