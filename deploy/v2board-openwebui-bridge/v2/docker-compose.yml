@@ -24,7 +24,7 @@ services:
       - OPENID_PROVIDER_URL=${OPENID_PROVIDER_URL:-https://your-v2board-domain/.well-known/openid-configuration}
       - OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID:-your-client-id}
       - OAUTH_CLIENT_SECRET=${OAUTH_CLIENT_SECRET:-your-client-secret}
-      - OAUTH_SCOPES=openid email openwebui_roles openwebui_groups
+      - OAUTH_SCOPES=openid email profile
       - OPENID_REDIRECT_URI=${OPENID_REDIRECT_URI:-https://your-openwebui-domain/oauth/oidc/callback}
 
       # 角色管理配置（可选）
