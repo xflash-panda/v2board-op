@@ -37,7 +37,7 @@ jobs:
     steps:
       - name: Checkout codebase
         uses: actions/checkout@v2.4.0
-      - name: Show workflow information 
+      - name: Show workflow information
         id: get_filename
         run: |
           export _NAME=$(jq ".[\"$GOOS-$GOARCH$GOARM$GOMIPS\"].friendlyName" -r < .github/build/friendly-filenames.json)
@@ -75,7 +75,7 @@ jobs:
         run: |
           mv build_assets v2board-vo-$ASSET_NAME
       - name: Upload files to Artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: v2board-vo-${{ steps.get_filename.outputs.ASSET_NAME }}
           path: |
@@ -88,4 +88,3 @@ jobs:
           file: ./v2board-vo-${{ steps.get_filename.outputs.ASSET_NAME }}.zip*
           tag: ${{ github.ref }}
           file_glob: true
-         
