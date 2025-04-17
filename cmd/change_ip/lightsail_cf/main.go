@@ -2,20 +2,21 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"syscall"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	"github.com/xflash-panda/v2board-op/internal/app/change_ip"
 	"github.com/xflash-panda/v2board-op/internal/pkg/api"
 	"github.com/xflash-panda/v2board-op/internal/pkg/service"
-	"io"
-	"os"
-	"os/signal"
-	"syscall"
 )
 
 const (
 	Name                       = "change-ip(lightsail-cf)"
-	Version                    = "0.1.10"
+	Version                    = "0.1.11"
 	CopyRight                  = "XFLASH-PANDA@2023"
 	LogLevelDebug              = "debug"
 	LogLevelError              = "error"
