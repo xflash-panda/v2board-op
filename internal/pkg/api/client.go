@@ -27,11 +27,11 @@ type Client struct {
 // New creat a api instance
 func New(apiConfig *Config) *Client {
 	client := resty.New()
-	client.SetRetryCount(3)
+	client.SetRetryCount(0)
 	if apiConfig.Timeout > 0 {
 		client.SetTimeout(time.Duration(apiConfig.Timeout) * time.Second)
 	} else {
-		client.SetTimeout(5 * time.Second)
+		client.SetTimeout(15 * time.Second)
 	}
 	client.OnError(func(req *resty.Request, err error) {
 		var v *resty.ResponseError
@@ -118,6 +118,33 @@ func (c *Client) TestPing(host string, port int) (result PingResult, err error) 
 	}
 
 	return repTestPing.Data, nil
+}
+
+// TestPingBatch batch test if host ports are blocked
+func (c *Client) TestPingBatch(hosts []PingBatchHost) (map[string]bool, error) {
+	var path = "/api/v1/server/internal/testPingBatch"
+	res, err := c.client.R().
+		SetBody(map[string]any{
+			"hosts": hosts,
+		}).
+		ForceContentType("application/json").
+		Post(path)
+
+	if err != nil {
+		return nil, fmt.Errorf("request %s failed: %s", c.assembleURL(path), err)
+	}
+
+	if res.StatusCode() >= 400 {
+		body := res.Body()
+		return nil, fmt.Errorf("request %s failed: status %d, %s", c.assembleURL(path), res.StatusCode(), string(body))
+	}
+
+	var rep RepTestPingBatch
+	if err := json.Unmarshal(res.Body(), &rep); err != nil {
+		return nil, fmt.Errorf("parse response failed: %s", err)
+	}
+
+	return rep.Data, nil
 }
 
 func (c *Client) ChangeIP(nodeType string, id int, sourceIp string, targetIp string) (err error) {

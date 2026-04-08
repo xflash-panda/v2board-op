@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	defaultPingTryNum = 5
-	defaultSleepTime  = 8 * time.Second
-	defaultBatchSize  = 3
+	defaultPingRetries = 3
+	defaultSleepTime   = 8 * time.Second
+	defaultBatchSize   = 3
 )
 
 type Ip *string
@@ -242,8 +242,24 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		batch := bannedList[i:end]
 		log.Infof("Processing batch %d-%d / %d", i+1, end, bannedListLen)
 
+		// Pre-check: filter out hosts that are actually reachable (false positive from service restart)
+		pingResults := m.batchPing(batch)
+		var unreachable []*api.BannedHostInfo
+		for _, item := range batch {
+			key := fmt.Sprintf("%s:%d", item.IP, item.Port)
+			if pingResults[key] {
+				log.Infof("Host %s is reachable, skip", key)
+			} else {
+				unreachable = append(unreachable, item)
+			}
+		}
+		if len(unreachable) == 0 {
+			log.Infof("All hosts in batch are reachable, skip")
+			continue
+		}
+
 		g := new(errgroup.Group)
-		for _, bannedItem := range batch {
+		for _, bannedItem := range unreachable {
 			item := bannedItem
 			g.Go(func() error {
 				m.processBannedItem(item)
@@ -260,6 +276,28 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 	return false, nil
 }
 
+// batchPing calls the batch ping API with retries. Returns a map of "host:port" => reachable.
+// On persistent failure, returns nil (caller should treat all as unreachable).
+func (m *LightsailCFJob) batchPing(items []*api.BannedHostInfo) map[string]bool {
+	hosts := make([]api.PingBatchHost, len(items))
+	for i, item := range items {
+		hosts[i] = api.PingBatchHost{Host: item.IP, Port: item.Port}
+	}
+
+	for attempt := 1; attempt <= defaultPingRetries; attempt++ {
+		results, err := m.apiClient.TestPingBatch(hosts)
+		if err != nil {
+			log.Warnf("Batch ping request failed (%d/%d): %v", attempt, defaultPingRetries, err)
+			time.Sleep(defaultSleepTime)
+			continue
+		}
+		return results
+	}
+
+	log.Errorf("Batch ping failed after %d retries", defaultPingRetries)
+	return nil
+}
+
 func (m *LightsailCFJob) processBannedItem(bannedItem *api.BannedHostInfo) {
 	log.Infof("current banned host: %s", bannedItem)
 	instance, ok := m.instances.Load(bannedItem.IP)
@@ -272,17 +310,6 @@ func (m *LightsailCFJob) processBannedItem(bannedItem *api.BannedHostInfo) {
 	}
 	log.Infof("found instance: %s", bannedItem)
 
-	checkPingResult, err := m.testPing(bannedItem.IP, bannedItem.Port, defaultPingTryNum)
-	if err != nil {
-		log.Errorf("check ping error, %s", err)
-		return
-	}
-	log.Infof("Check ping result: %v", checkPingResult)
-	if checkPingResult {
-		log.Infof("host %s is reachable, skip", bannedItem.IP)
-		return
-	}
-
 	newIp, err := m.processInstance(instance.(types.Instance))
 	if err != nil {
 		log.Errorf("Process instance failed: %s", err)
@@ -290,16 +317,16 @@ func (m *LightsailCFJob) processBannedItem(bannedItem *api.BannedHostInfo) {
 	}
 
 	log.Infof("%s Getting a new ip: %s", bannedItem, *newIp)
-	pingResult, err := m.testPing(*newIp, bannedItem.Port, defaultPingTryNum)
-	if err != nil {
-		log.Errorf("Test ping failed: %s", err)
-	}
-	log.Infof("Ip %s ping result is %v ", *newIp, pingResult)
 
-	if pingResult {
+	// Verify new IP is reachable
+	checkItem := &api.BannedHostInfo{IP: *newIp, Port: bannedItem.Port}
+	pingResult := m.batchPing([]*api.BannedHostInfo{checkItem})
+	if pingResult[fmt.Sprintf("%s:%d", *newIp, bannedItem.Port)] {
 		m.stats.success.Add(1)
+		log.Infof("New IP %s is reachable", *newIp)
 	} else {
 		m.stats.fail.Add(1)
+		log.Warnf("New IP %s is NOT reachable", *newIp)
 	}
 
 	err = m.changeIp(bannedItem, *newIp)
@@ -349,25 +376,6 @@ func (m *LightsailCFJob) createDnsRecord(ip string) error {
 		return fmt.Errorf("add dns record %s: %s error: %s", m.conf.Domain, ip, err)
 	}
 	return nil
-}
-
-func (m *LightsailCFJob) testPing(host string, port int, tryNum int) (bool, error) {
-	i := 0
-	var pingResult api.PingResult
-	var err error
-	for i < tryNum {
-		pingResult, err = m.apiClient.TestPing(host, port)
-		i++
-		log.Infof("Host %s:%d  ping result is %v  %d times", host, port, pingResult, i)
-		if err != nil {
-			return false, err
-		}
-		if pingResult {
-			break
-		}
-		time.Sleep(defaultSleepTime)
-	}
-	return bool(pingResult), nil
 }
 
 func (m *LightsailCFJob) changeIp(bannedItem *api.BannedHostInfo, newIp string) error {
