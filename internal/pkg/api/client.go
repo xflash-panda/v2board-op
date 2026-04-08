@@ -120,15 +120,14 @@ func (c *Client) TestPing(host string, port int) (result PingResult, err error) 
 	return repTestPing.Data, nil
 }
 
-func (c *Client) ChangeIP(nodeType string, id int, sourceIp string, targetIp string, walledStatus bool) (err error) {
+func (c *Client) ChangeIP(nodeType string, id int, sourceIp string, targetIp string) (err error) {
 	var path = "/api/v1/server/internal/changeIp"
 	res, err := c.client.R().
 		SetBody(map[string]interface{}{
-			"type":          nodeType,
-			"id":            id,
-			"source_ip":     sourceIp,
-			"target_ip":     targetIp,
-			"walled_status": walledStatus,
+			"type":      nodeType,
+			"id":        id,
+			"source_ip": sourceIp,
+			"target_ip": targetIp,
 		}).
 		ForceContentType("application/json").
 		Post(path)

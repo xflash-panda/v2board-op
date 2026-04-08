@@ -7,7 +7,7 @@ import "fmt"
 type API interface {
 	QueryBannedList(tags []string) (bannedList []*BannedHostInfo, err error)
 	TestPing(host string, port int) (result PingResult, err error)
-	ChangeIP(nodeType string, id int, sourceIp string, targetIp string, walledStatus bool) (err error)
+	ChangeIP(nodeType string, id int, sourceIp string, targetIp string) (err error)
 	//	GetUserList() (userList []*UserInfo, err error)
 	//	ReportUserTraffic(userTraffic []*UserTraffic) (err error)
 	//	Describe() *ClientInfo
@@ -33,7 +33,7 @@ type RepTestPing struct {
 }
 
 type RepChangIpResult struct {
-	Data PingResult `json:"data"`
+	Data ChangeIpResult `json:"data"`
 }
 
 func (i *BannedHostInfo) String() string {

@@ -108,7 +108,7 @@ func TestChangeIP_Success(t *testing.T) {
 	defer server.Close()
 
 	client := New(&Config{APIHost: server.URL, Token: "test"})
-	err := client.ChangeIP("vmess", 1, "1.2.3.4", "5.6.7.8", true)
+	err := client.ChangeIP("vmess", 1, "1.2.3.4", "5.6.7.8")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestChangeIP_HTTP400(t *testing.T) {
 	defer server.Close()
 
 	client := New(&Config{APIHost: server.URL, Token: "test"})
-	err := client.ChangeIP("vmess", 1, "1.2.3.4", "5.6.7.8", true)
+	err := client.ChangeIP("vmess", 1, "1.2.3.4", "5.6.7.8")
 	if err == nil {
 		t.Fatal("expected error for HTTP 400, got nil")
 	}
@@ -130,7 +130,7 @@ func TestChangeIP_HTTP400(t *testing.T) {
 
 func TestChangeIP_NetworkError(t *testing.T) {
 	client := New(&Config{APIHost: "http://127.0.0.1:1", Token: "test", Timeout: 1})
-	err := client.ChangeIP("vmess", 1, "1.2.3.4", "5.6.7.8", true)
+	err := client.ChangeIP("vmess", 1, "1.2.3.4", "5.6.7.8")
 	if err == nil {
 		t.Fatal("expected error for network failure, got nil")
 	}
