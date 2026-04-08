@@ -27,3 +27,11 @@ go.work
 cmd/change_ip/lightsail_cf/lightsail_cf
 
 # End of https://www.toptal.com/developers/gitignore/api/go
+
+# Plans and superpowers docs
+docs/plans/
+docs/superpowers/
+
+# Claude config
+CLAUDE.md
+.claude/
