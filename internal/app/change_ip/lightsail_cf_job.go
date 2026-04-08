@@ -216,7 +216,7 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 
 	bannedList, err := m.apiClient.QueryBannedList(m.conf.QueryTags)
 	if err != nil {
-		return false, fmt.Errorf("Query banned List error:  %s", err)
+		return false, fmt.Errorf("query banned list error: %s", err)
 	}
 
 	bannedListLen := len(bannedList)
@@ -341,7 +341,7 @@ func (m *LightsailCFJob) createDnsRecord(ip string) error {
 	})
 
 	if err != nil {
-		return fmt.Errorf("Add dns record  %s : %s error: %s", m.conf.Domain, ip, err)
+		return fmt.Errorf("add dns record %s: %s error: %s", m.conf.Domain, ip, err)
 	}
 	return nil
 }
@@ -397,7 +397,7 @@ func (m *LightsailCFJob) processInstanceReleaseStaticIp(instance types.Instance)
 	lightsailClient, _ := m.lightsailSrv.GetClient()
 	staticIp, ok := m.staticIps.Load(*instance.PublicIpAddress)
 	if !ok {
-		return nil, fmt.Errorf("No static ip found, %s ", *instance.PublicIpAddress)
+		return nil, fmt.Errorf("no static ip found, %s", *instance.PublicIpAddress)
 	}
 	staticIpName := staticIp.(types.StaticIp).Name
 	_, err = lightsailClient.DetachStaticIp(context.TODO(), &lightsail.DetachStaticIpInput{StaticIpName: staticIpName})

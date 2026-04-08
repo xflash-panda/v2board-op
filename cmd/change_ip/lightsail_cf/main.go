@@ -148,17 +148,18 @@ func main() {
 		},
 		Before: func(c *cli.Context) error {
 			log.SetFormatter(&log.TextFormatter{})
-			if logLevel == LogLevelDebug {
+			switch logLevel {
+			case LogLevelDebug:
 				log.SetFormatter(&log.TextFormatter{
 					FullTimestamp: true,
 				})
 				log.SetLevel(log.DebugLevel)
 				log.SetReportCaller(false)
-			} else if logLevel == LogLevelInfo {
+			case LogLevelInfo:
 				log.SetLevel(log.InfoLevel)
-			} else if logLevel == LogLevelError {
+			case LogLevelError:
 				log.SetLevel(log.ErrorLevel)
-			} else {
+			default:
 				return fmt.Errorf("log mode %s not supported", logLevel)
 			}
 			return nil
