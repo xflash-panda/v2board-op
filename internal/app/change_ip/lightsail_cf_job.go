@@ -3,6 +3,11 @@ package change_ip
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/service/lightsail"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
 	"github.com/cloudflare/cloudflare-go"
@@ -11,9 +16,6 @@ import (
 	"github.com/xflash-panda/v2board-op/internal/pkg/api"
 	"github.com/xflash-panda/v2board-op/internal/pkg/service"
 	"github.com/xflash-panda/v2board-op/internal/pkg/util"
-	"strings"
-	"sync"
-	"time"
 )
 
 const (
@@ -23,17 +25,16 @@ const (
 
 type Ip *string
 
-var emptyIp string
-
 type LightsailCFJobConfig struct {
-	QueryTags []string
-	Domain    string
+	QueryTags   []string
+	Domain      string
+	Concurrency int
 }
 
 type LightsailJobStats struct {
 	total   int
-	success int
-	fail    int
+	success atomic.Int64
+	fail    atomic.Int64
 }
 
 func (conf *LightsailCFJobConfig) check() error {
@@ -49,6 +50,10 @@ func (conf *LightsailCFJobConfig) check() error {
 	if !util.IsValidDomain(conf.Domain) {
 		return fmt.Errorf("configuration error: %s", "invalid domain name")
 	}
+
+	if conf.Concurrency < 0 {
+		return fmt.Errorf("configuration error: %s", "concurrency must be non-negative")
+	}
 	return nil
 }
 
@@ -60,14 +65,15 @@ type LightsailCFJob struct {
 	dnsZoneId     string
 	instances     sync.Map
 	staticIps     sync.Map
+	staticIpMu    sync.Mutex
 	dnsRecords    sync.Map
 	lock          *flock.Flock
 	stats         *LightsailJobStats
 }
 
 func NewLightsailCFJob(conf *LightsailCFJobConfig, apiClient *api.Client, lightsailSrv *service.LightSailService, cloudflareSrv *service.CloudflareService) *LightsailCFJob {
-	stats := &LightsailJobStats{0, 0, 0}
-	lockPath := fmt.Sprintf("/tmp/change_ip_%s.lock", strings.Replace(conf.Domain, ".", "_", -1))
+	stats := &LightsailJobStats{}
+	lockPath := fmt.Sprintf("/tmp/change_ip_%s.lock", strings.ReplaceAll(conf.Domain, ".", "_"))
 	lock := flock.New(lockPath)
 	return &LightsailCFJob{conf: conf, apiClient: apiClient, lightsailSrv: lightsailSrv, cloudflareSrv: cloudflareSrv, stats: stats, lock: lock}
 }
@@ -99,17 +105,27 @@ func (m *LightsailCFJob) initInstances() error {
 		return fmt.Errorf("init instances error: %s", err)
 	}
 
-	instancesOutput, err := lightsailClient.GetInstances(context.TODO(), &lightsail.GetInstancesInput{PageToken: nil})
-	if err != nil {
-		return fmt.Errorf("init instances error: %s", err)
-	}
-
-	for _, instance := range instancesOutput.Instances {
-		if instance.PublicIpAddress != nil {
-			m.instances.Store(*instance.PublicIpAddress, instance)
+	var pageToken *string
+	total := 0
+	for {
+		instancesOutput, err := lightsailClient.GetInstances(context.TODO(), &lightsail.GetInstancesInput{PageToken: pageToken})
+		if err != nil {
+			return fmt.Errorf("init instances error: %s", err)
 		}
+
+		for _, instance := range instancesOutput.Instances {
+			if instance.PublicIpAddress != nil {
+				m.instances.Store(*instance.PublicIpAddress, instance)
+			}
+		}
+		total += len(instancesOutput.Instances)
+
+		if instancesOutput.NextPageToken == nil {
+			break
+		}
+		pageToken = instancesOutput.NextPageToken
 	}
-	log.Infof("Get %d VPS instances", len(instancesOutput.Instances))
+	log.Infof("Get %d VPS instances", total)
 	return nil
 }
 
@@ -119,18 +135,28 @@ func (m *LightsailCFJob) initStaticIps() error {
 		return fmt.Errorf("init static ips error: %s", err)
 	}
 
-	staticIpsOutput, err := lightsailClient.GetStaticIps(context.TODO(), &lightsail.GetStaticIpsInput{PageToken: nil})
-	if err != nil {
-		return err
-	}
-
-	for _, staticIp := range staticIpsOutput.StaticIps {
-		if staticIp.IpAddress != nil {
-			m.staticIps.Store(*staticIp.IpAddress, staticIp)
+	var pageToken *string
+	total := 0
+	for {
+		staticIpsOutput, err := lightsailClient.GetStaticIps(context.TODO(), &lightsail.GetStaticIpsInput{PageToken: pageToken})
+		if err != nil {
+			return err
 		}
+
+		for _, staticIp := range staticIpsOutput.StaticIps {
+			if staticIp.IpAddress != nil {
+				m.staticIps.Store(*staticIp.IpAddress, staticIp)
+			}
+		}
+		total += len(staticIpsOutput.StaticIps)
+
+		if staticIpsOutput.NextPageToken == nil {
+			break
+		}
+		pageToken = staticIpsOutput.NextPageToken
 	}
 
-	log.Infof("Get %d static ips", len(staticIpsOutput.StaticIps))
+	log.Infof("Get %d static ips", total)
 	return nil
 }
 
@@ -180,9 +206,7 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 	}
 
 	defer func() {
-		// 假设Unlock返回了一个错误
 		if err := m.lock.Unlock(); err != nil {
-			// 处理错误
 			log.Printf("failed to unlock: %v", err)
 		}
 	}()
@@ -207,10 +231,6 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		if !ok {
 			log.Errorf("No instance found, %s ", bannedItem)
 			err = m.dropDnsRecord(bannedItem.IP)
-			if err != nil {
-				log.Error(err)
-			}
-			err = m.changeIp(bannedItem, emptyIp, true)
 			if err != nil {
 				log.Error(err)
 			}
@@ -245,9 +265,9 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		log.Infof("Ip %s ping result is %v ", *newIp, pingResult)
 
 		if pingResult {
-			m.stats.success++
+			m.stats.success.Add(1)
 		} else {
-			m.stats.fail++
+			m.stats.fail.Add(1)
 		}
 
 		err = m.changeIp(bannedItem, *newIp, pingResult)
@@ -271,7 +291,7 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 
 	}
 
-	if m.stats.fail > 0 {
+	if m.stats.fail.Load() > 0 {
 		return true, nil
 	}
 
@@ -333,6 +353,8 @@ func (m *LightsailCFJob) changeIp(bannedItem *api.BannedHostInfo, newIp string, 
 }
 
 func (m *LightsailCFJob) processInstance(instance types.Instance) (newIP *string, err error) {
+	m.staticIpMu.Lock()
+	defer m.staticIpMu.Unlock()
 	log.Infof("process instance {name: %s, ip: %s}", *instance.Name, *instance.PublicIpAddress)
 	if *instance.IsStaticIp {
 		log.Infof("{name: %s, ip: %s} must be release static ip", *instance.Name, *instance.PublicIpAddress)
@@ -449,7 +471,7 @@ func (m *LightsailCFJob) processInstanceMustRestart(instance types.Instance) (ne
 
 func (m *LightsailCFJob) lenStaticIps() int {
 	i := 0
-	m.staticIps.Range(func(k, v interface{}) bool {
+	m.staticIps.Range(func(k, v any) bool {
 		i++
 		return true
 	})

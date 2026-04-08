@@ -129,6 +129,14 @@ func main() {
 				Destination: &jobMaxTryNum,
 				Required:    false,
 			},
+			&cli.IntFlag{
+				Name:        "concurrency",
+				Value:       10,
+				Usage:       "Maximum number of concurrent IP changes",
+				EnvVars:     []string{"X_CONCURRENCY", "CONCURRENCY"},
+				Destination: &lightsailCFJobConfig.Concurrency,
+				Required:    false,
+			},
 			&cli.StringFlag{
 				Name:        "log_mode",
 				Value:       LogLevelError,

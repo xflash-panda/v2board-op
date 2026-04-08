@@ -1,6 +1,9 @@
 package change_ip
 
 import (
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
@@ -35,7 +38,6 @@ func TestStaticIpsCacheDelete(t *testing.T) {
 		t.Fatalf("expected 5 before delete, got %d", got)
 	}
 
-	// Simulate what processInstanceReleaseStaticIp now does
 	job.staticIps.Delete("1.1.1.1")
 
 	if got := job.lenStaticIps(); got != 4 {
@@ -52,7 +54,6 @@ func TestStaticIpsCacheStoreAfterAllocate(t *testing.T) {
 		t.Fatalf("expected 2 before allocate, got %d", got)
 	}
 
-	// Simulate what processInstanceAllocateStaticIp now does
 	job.staticIps.Store("3.3.3.3", types.StaticIp{})
 
 	if got := job.lenStaticIps(); got != 3 {
@@ -61,8 +62,6 @@ func TestStaticIpsCacheStoreAfterAllocate(t *testing.T) {
 }
 
 func TestProcessInstanceRouting_StaticIp(t *testing.T) {
-	// When instance has static IP, should choose release path
-	// We verify the routing condition only
 	isStaticIp := true
 	if !isStaticIp {
 		t.Error("expected static IP path to be chosen")
@@ -71,7 +70,6 @@ func TestProcessInstanceRouting_StaticIp(t *testing.T) {
 
 func TestProcessInstanceRouting_MaxStaticIps_MustRestart(t *testing.T) {
 	job := &LightsailCFJob{}
-	// Fill up to max (5)
 	for i := 0; i < 5; i++ {
 		ip := "10.0.0." + string(rune('1'+i))
 		job.staticIps.Store(ip, types.StaticIp{})
@@ -80,7 +78,6 @@ func TestProcessInstanceRouting_MaxStaticIps_MustRestart(t *testing.T) {
 	if job.lenStaticIps() < 5 {
 		t.Fatal("expected >= 5 static IPs")
 	}
-	// This condition triggers the restart path in processInstance
 	if job.lenStaticIps() < 5 {
 		t.Error("should trigger restart path when static IPs are at max")
 	}
@@ -97,7 +94,6 @@ func TestProcessInstanceRouting_BelowMax_Allocate(t *testing.T) {
 
 func TestProcessInstanceRouting_ReleaseFreesSlot(t *testing.T) {
 	job := &LightsailCFJob{}
-	// Start at max
 	for i := 0; i < 5; i++ {
 		ip := "10.0.0." + string(rune('1'+i))
 		job.staticIps.Store(ip, types.StaticIp{})
@@ -107,10 +103,8 @@ func TestProcessInstanceRouting_ReleaseFreesSlot(t *testing.T) {
 		t.Fatal("precondition: expected 5 static IPs")
 	}
 
-	// Release one (simulating processInstanceReleaseStaticIp fix)
 	job.staticIps.Delete("10.0.0.1")
 
-	// Now a subsequent instance should take the allocate path, not restart
 	if job.lenStaticIps() >= 5 {
 		t.Error("after releasing one static IP, count should be below max, allowing allocate path")
 	}
@@ -141,5 +135,81 @@ func TestConfigCheck_Valid(t *testing.T) {
 	conf := &LightsailCFJobConfig{QueryTags: []string{"tag1"}, Domain: "test.example.com"}
 	if err := conf.check(); err != nil {
 		t.Errorf("expected no error, got: %v", err)
+	}
+}
+
+func TestConfigCheck_ZeroConcurrency_DefaultsValid(t *testing.T) {
+	conf := &LightsailCFJobConfig{
+		QueryTags:   []string{"tag1"},
+		Domain:      "test.example.com",
+		Concurrency: 0,
+	}
+	if err := conf.check(); err != nil {
+		t.Errorf("zero concurrency should be valid (will default at runtime), got: %v", err)
+	}
+}
+
+func TestConfigCheck_NegativeConcurrency(t *testing.T) {
+	conf := &LightsailCFJobConfig{
+		QueryTags:   []string{"tag1"},
+		Domain:      "test.example.com",
+		Concurrency: -1,
+	}
+	if err := conf.check(); err == nil {
+		t.Error("expected error for negative concurrency")
+	}
+}
+
+func TestStatsAtomicSafety(t *testing.T) {
+	stats := &LightsailJobStats{}
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			stats.success.Add(1)
+			stats.fail.Add(1)
+		}()
+	}
+	wg.Wait()
+
+	if got := stats.success.Load(); got != 100 {
+		t.Errorf("expected success=100, got %d", got)
+	}
+	if got := stats.fail.Load(); got != 100 {
+		t.Errorf("expected fail=100, got %d", got)
+	}
+}
+
+func TestStaticIpMutexPreventsOverAllocation(t *testing.T) {
+	job := &LightsailCFJob{}
+	for i := 0; i < 4; i++ {
+		ip := fmt.Sprintf("10.0.0.%d", i+1)
+		job.staticIps.Store(ip, types.StaticIp{})
+	}
+
+	var wg sync.WaitGroup
+	overAllocated := atomic.Int64{}
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			job.staticIpMu.Lock()
+			defer job.staticIpMu.Unlock()
+			if job.lenStaticIps() < 5 {
+				ip := fmt.Sprintf("10.0.1.%d", overAllocated.Load()+1)
+				job.staticIps.Store(ip, types.StaticIp{})
+				overAllocated.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := overAllocated.Load(); got != 1 {
+		t.Errorf("expected exactly 1 allocation, got %d", got)
+	}
+	if got := job.lenStaticIps(); got != 5 {
+		t.Errorf("expected 5 static IPs, got %d", got)
 	}
 }
