@@ -36,6 +36,15 @@ type RepChangIpResult struct {
 	Data ChangeIpResult `json:"data"`
 }
 
+type PingBatchHost struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
+}
+
+type RepTestPingBatch struct {
+	Data map[string]bool `json:"data"`
+}
+
 func (i *BannedHostInfo) String() string {
 	return fmt.Sprintf("{type: %s id: %d ip: %s port: %d}", i.Type, i.ID, i.IP, i.Port)
 }

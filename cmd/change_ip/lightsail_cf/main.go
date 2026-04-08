@@ -16,7 +16,7 @@ import (
 
 const (
 	Name                       = "change-ip(lightsail-cf)"
-	Version                    = "0.2.1"
+	Version                    = "0.3.0"
 	CopyRight                  = "XFLASH-PANDA@2023"
 	LogLevelDebug              = "debug"
 	LogLevelError              = "error"
@@ -131,8 +131,8 @@ func main() {
 			},
 			&cli.IntFlag{
 				Name:        "concurrency",
-				Value:       10,
-				Usage:       "Maximum number of concurrent IP changes",
+				Value:       3,
+				Usage:       "Maximum number of concurrent IP changes per batch",
 				EnvVars:     []string{"X_CONCURRENCY", "CONCURRENCY"},
 				Destination: &lightsailCFJobConfig.Concurrency,
 				Required:    false,
