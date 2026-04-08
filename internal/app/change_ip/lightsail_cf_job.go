@@ -225,8 +225,9 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 		}
 		log.Infof("Check ping result: %v", checkPingResult)
 		if checkPingResult {
-			err = m.changeIp(bannedItem, bannedItem.IP, checkPingResult)
-			log.Errorf("Change ip error: %s", err)
+			if err = m.changeIp(bannedItem, bannedItem.IP, checkPingResult); err != nil {
+				log.Errorf("Change ip error: %s", err)
+			}
 			continue
 		}
 
@@ -362,6 +363,8 @@ func (m *LightsailCFJob) processInstanceReleaseStaticIp(instance types.Instance)
 		return nil, err
 	}
 
+	m.staticIps.Delete(*instance.PublicIpAddress)
+
 	instanceOutput, err := lightsailClient.GetInstance(context.TODO(), &lightsail.GetInstanceInput{InstanceName: instance.Name})
 	if err != nil {
 		return nil, err
@@ -391,6 +394,9 @@ func (m *LightsailCFJob) processInstanceAllocateStaticIp(instance types.Instance
 	}
 
 	newIp = staticIpOutput.StaticIp.IpAddress
+	if newIp != nil {
+		m.staticIps.Store(*newIp, *staticIpOutput.StaticIp)
+	}
 	return newIp, nil
 }
 

@@ -71,9 +71,9 @@ func (c *Client) QueryBannedList(tags []string) (bannedList []*BannedHostInfo, e
 		return nil, fmt.Errorf("request %s failed: %s", c.assembleURL(path), err)
 	}
 
-	if res.StatusCode() > 400 {
+	if res.StatusCode() >= 400 {
 		body := res.Body()
-		return nil, fmt.Errorf("request %s failed: %s, %s", c.assembleURL(path), string(body), err)
+		return nil, fmt.Errorf("request %s failed: status %d, %s", c.assembleURL(path), res.StatusCode(), string(body))
 	}
 
 	var repBannedList RepQueryBannedList
@@ -104,9 +104,13 @@ func (c *Client) TestPing(host string, port int) (result PingResult, err error) 
 		ForceContentType("application/json").
 		Post(path)
 
-	if res.StatusCode() > 400 {
+	if err != nil {
+		return false, fmt.Errorf("request %s failed: %s", c.assembleURL(path), err)
+	}
+
+	if res.StatusCode() >= 400 {
 		body := res.Body()
-		return false, fmt.Errorf("request %s failed: %s, %s", c.assembleURL(path), string(body), err)
+		return false, fmt.Errorf("request %s failed: status %d, %s", c.assembleURL(path), res.StatusCode(), string(body))
 	}
 	var repTestPing RepTestPing
 	if err := json.Unmarshal(res.Body(), &repTestPing); err != nil {
@@ -129,9 +133,13 @@ func (c *Client) ChangeIP(nodeType string, id int, sourceIp string, targetIp str
 		ForceContentType("application/json").
 		Post(path)
 
-	if res.StatusCode() > 400 {
+	if err != nil {
+		return fmt.Errorf("request %s failed: %s", c.assembleURL(path), err)
+	}
+
+	if res.StatusCode() >= 400 {
 		body := res.Body()
-		return fmt.Errorf("request %s failed: %s, %s", c.assembleURL(path), string(body), err)
+		return fmt.Errorf("request %s failed: status %d, %s", c.assembleURL(path), res.StatusCode(), string(body))
 	}
 
 	var repChangeIp RepChangIpResult

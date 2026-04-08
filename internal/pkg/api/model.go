@@ -7,7 +7,7 @@ import "fmt"
 type API interface {
 	QueryBannedList(tags []string) (bannedList []*BannedHostInfo, err error)
 	TestPing(host string, port int) (result PingResult, err error)
-	ChangeIP(nodeType string, id int, sourceIp string, targetIp string) (err error)
+	ChangeIP(nodeType string, id int, sourceIp string, targetIp string, walledStatus bool) (err error)
 	//	GetUserList() (userList []*UserInfo, err error)
 	//	ReportUserTraffic(userTraffic []*UserTraffic) (err error)
 	//	Describe() *ClientInfo
