@@ -23,6 +23,7 @@ import (
 const (
 	defaultPingTryNum = 5
 	defaultSleepTime  = 8 * time.Second
+	defaultBatchSize  = 3
 )
 
 type Ip *string
@@ -228,25 +229,29 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 	m.stats.total = bannedListLen
 	log.Infof("Found %d walled hosts", bannedListLen)
 
-	concurrency := m.conf.Concurrency
-	if concurrency <= 0 {
-		concurrency = 10
+	batchSize := m.conf.Concurrency
+	if batchSize <= 0 {
+		batchSize = defaultBatchSize
 	}
 
-	sem := make(chan struct{}, concurrency)
-	g := new(errgroup.Group)
+	for i := 0; i < bannedListLen; i += batchSize {
+		end := i + batchSize
+		if end > bannedListLen {
+			end = bannedListLen
+		}
+		batch := bannedList[i:end]
+		log.Infof("Processing batch %d-%d / %d", i+1, end, bannedListLen)
 
-	for _, bannedItem := range bannedList {
-		item := bannedItem
-		sem <- struct{}{}
-		g.Go(func() error {
-			defer func() { <-sem }()
-			m.processBannedItem(item)
-			return nil
-		})
+		g := new(errgroup.Group)
+		for _, bannedItem := range batch {
+			item := bannedItem
+			g.Go(func() error {
+				m.processBannedItem(item)
+				return nil
+			})
+		}
+		_ = g.Wait()
 	}
-
-	_ = g.Wait()
 
 	if m.stats.fail.Load() > 0 {
 		return true, nil
