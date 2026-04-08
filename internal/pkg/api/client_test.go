@@ -16,7 +16,7 @@ func TestQueryBannedList_Success(t *testing.T) {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		resp := RepQueryBannedList{Data: expected}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -36,7 +36,7 @@ func TestQueryBannedList_Success(t *testing.T) {
 func TestQueryBannedList_HTTP400(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("bad request"))
+		_, _ = w.Write([]byte("bad request"))
 	}))
 	defer server.Close()
 
@@ -50,7 +50,7 @@ func TestQueryBannedList_HTTP400(t *testing.T) {
 func TestQueryBannedList_HTTP500(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("server error"))
+		_, _ = w.Write([]byte("server error"))
 	}))
 	defer server.Close()
 
@@ -64,7 +64,7 @@ func TestQueryBannedList_HTTP500(t *testing.T) {
 func TestTestPing_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := RepTestPing{Data: true}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -81,7 +81,7 @@ func TestTestPing_Success(t *testing.T) {
 func TestTestPing_HTTP400(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("bad"))
+		_, _ = w.Write([]byte("bad"))
 	}))
 	defer server.Close()
 
@@ -103,7 +103,7 @@ func TestTestPing_NetworkError(t *testing.T) {
 func TestChangeIP_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := RepChangIpResult{Data: true}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -117,7 +117,7 @@ func TestChangeIP_Success(t *testing.T) {
 func TestChangeIP_HTTP400(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("bad"))
+		_, _ = w.Write([]byte("bad"))
 	}))
 	defer server.Close()
 
