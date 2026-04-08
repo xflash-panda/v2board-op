@@ -13,6 +13,8 @@ import (
 	"github.com/cloudflare/cloudflare-go"
 	log "github.com/sirupsen/logrus"
 	"github.com/theckman/go-flock"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/xflash-panda/v2board-op/internal/pkg/api"
 	"github.com/xflash-panda/v2board-op/internal/pkg/service"
 	"github.com/xflash-panda/v2board-op/internal/pkg/util"
@@ -225,77 +227,92 @@ func (m *LightsailCFJob) Run() (rerunState bool, err error) {
 
 	m.stats.total = bannedListLen
 	log.Infof("Found %d walled hosts", bannedListLen)
-	for _, bannedItem := range bannedList {
-		log.Infof("current banned host: %s", bannedItem)
-		instance, ok := m.instances.Load(bannedItem.IP)
-		if !ok {
-			log.Errorf("No instance found, %s ", bannedItem)
-			err = m.dropDnsRecord(bannedItem.IP)
-			if err != nil {
-				log.Error(err)
-			}
-			continue
-		}
-		log.Infof("found instance: %s", bannedItem)
 
-		checkPingResult, err := m.testPing(bannedItem.IP, bannedItem.Port, defaultPingTryNum)
-		if err != nil {
-			log.Errorf("check ping error, %s", err)
-			continue
-		}
-		log.Infof("Check ping result: %v", checkPingResult)
-		if checkPingResult {
-			if err = m.changeIp(bannedItem, bannedItem.IP, checkPingResult); err != nil {
-				log.Errorf("Change ip error: %s", err)
-			}
-			continue
-		}
-
-		newIp, err := m.processInstance(instance.(types.Instance))
-		if err != nil {
-			log.Errorf("Process instance failed: %s", err)
-			continue
-		}
-
-		log.Infof("%s Getting a new ip: %s", bannedItem, *newIp)
-		pingResult, err := m.testPing(*newIp, bannedItem.Port, defaultPingTryNum)
-		if err != nil {
-			log.Errorf("Test ping failed: %s", err)
-		}
-		log.Infof("Ip %s ping result is %v ", *newIp, pingResult)
-
-		if pingResult {
-			m.stats.success.Add(1)
-		} else {
-			m.stats.fail.Add(1)
-		}
-
-		err = m.changeIp(bannedItem, *newIp, pingResult)
-		if err != nil {
-			log.Errorf("Change ip error: %s", err)
-		}
-		log.Infoln("change ip success")
-		if ok {
-			if err = m.dropDnsRecord(bannedItem.IP); err != nil {
-				log.Error(err)
-			} else {
-				log.Infof("delete dns record {%s: %s}", m.conf.Domain, bannedItem.IP)
-			}
-		}
-		err = m.createDnsRecord(*newIp)
-		if err != nil {
-			log.Error(err)
-		} else {
-			log.Infof("Add dns record %s : %s", m.conf.Domain, *newIp)
-		}
-
+	concurrency := m.conf.Concurrency
+	if concurrency <= 0 {
+		concurrency = 10
 	}
+
+	sem := make(chan struct{}, concurrency)
+	g := new(errgroup.Group)
+
+	for _, bannedItem := range bannedList {
+		item := bannedItem
+		sem <- struct{}{}
+		g.Go(func() error {
+			defer func() { <-sem }()
+			m.processBannedItem(item)
+			return nil
+		})
+	}
+
+	_ = g.Wait()
 
 	if m.stats.fail.Load() > 0 {
 		return true, nil
 	}
 
 	return false, nil
+}
+
+func (m *LightsailCFJob) processBannedItem(bannedItem *api.BannedHostInfo) {
+	log.Infof("current banned host: %s", bannedItem)
+	instance, ok := m.instances.Load(bannedItem.IP)
+	if !ok {
+		log.Warnf("No instance found, skip %s", bannedItem)
+		if err := m.dropDnsRecord(bannedItem.IP); err != nil {
+			log.Error(err)
+		}
+		return
+	}
+	log.Infof("found instance: %s", bannedItem)
+
+	checkPingResult, err := m.testPing(bannedItem.IP, bannedItem.Port, defaultPingTryNum)
+	if err != nil {
+		log.Errorf("check ping error, %s", err)
+		return
+	}
+	log.Infof("Check ping result: %v", checkPingResult)
+	if checkPingResult {
+		log.Infof("host %s is reachable, skip", bannedItem.IP)
+		return
+	}
+
+	newIp, err := m.processInstance(instance.(types.Instance))
+	if err != nil {
+		log.Errorf("Process instance failed: %s", err)
+		return
+	}
+
+	log.Infof("%s Getting a new ip: %s", bannedItem, *newIp)
+	pingResult, err := m.testPing(*newIp, bannedItem.Port, defaultPingTryNum)
+	if err != nil {
+		log.Errorf("Test ping failed: %s", err)
+	}
+	log.Infof("Ip %s ping result is %v ", *newIp, pingResult)
+
+	if pingResult {
+		m.stats.success.Add(1)
+	} else {
+		m.stats.fail.Add(1)
+	}
+
+	err = m.changeIp(bannedItem, *newIp)
+	if err != nil {
+		log.Errorf("Change ip error: %s", err)
+	}
+	log.Infoln("change ip success")
+	if err = m.dropDnsRecord(bannedItem.IP); err != nil {
+		log.Error(err)
+	} else {
+		log.Infof("delete dns record {%s: %s}", m.conf.Domain, bannedItem.IP)
+	}
+	err = m.createDnsRecord(*newIp)
+	if err != nil {
+		log.Error(err)
+	} else {
+		log.Infof("Add dns record %s : %s", m.conf.Domain, *newIp)
+	}
 }
 
 func (m *LightsailCFJob) dropDnsRecord(ip string) error {
@@ -348,25 +365,32 @@ func (m *LightsailCFJob) testPing(host string, port int, tryNum int) (bool, erro
 	return bool(pingResult), nil
 }
 
-func (m *LightsailCFJob) changeIp(bannedItem *api.BannedHostInfo, newIp string, pingResult bool) error {
-	return m.apiClient.ChangeIP(bannedItem.Type, bannedItem.ID, bannedItem.IP, newIp, !pingResult)
+func (m *LightsailCFJob) changeIp(bannedItem *api.BannedHostInfo, newIp string) error {
+	return m.apiClient.ChangeIP(bannedItem.Type, bannedItem.ID, bannedItem.IP, newIp)
 }
 
 func (m *LightsailCFJob) processInstance(instance types.Instance) (newIP *string, err error) {
-	m.staticIpMu.Lock()
-	defer m.staticIpMu.Unlock()
 	log.Infof("process instance {name: %s, ip: %s}", *instance.Name, *instance.PublicIpAddress)
+
 	if *instance.IsStaticIp {
 		log.Infof("{name: %s, ip: %s} must be release static ip", *instance.Name, *instance.PublicIpAddress)
-		return m.processInstanceReleaseStaticIp(instance)
+		m.staticIpMu.Lock()
+		newIP, err = m.processInstanceReleaseStaticIp(instance)
+		m.staticIpMu.Unlock()
+		return newIP, err
 	}
-	//Allocate Static Ip
+
+	m.staticIpMu.Lock()
 	if m.lenStaticIps() >= service.LightsailMaxStaticIp {
+		m.staticIpMu.Unlock()
+		// mustRestart 不涉及静态 IP，无需持锁，可并行执行
 		log.Infof("{name: %s, ip: %s} must be restart to get new IP", *instance.Name, *instance.PublicIpAddress)
 		return m.processInstanceMustRestart(instance)
 	}
 	log.Infof("{name: %s, ip: %s} need to allocate a new static IP", *instance.Name, *instance.PublicIpAddress)
-	return m.processInstanceAllocateStaticIp(instance)
+	newIP, err = m.processInstanceAllocateStaticIp(instance)
+	m.staticIpMu.Unlock()
+	return newIP, err
 }
 
 func (m *LightsailCFJob) processInstanceReleaseStaticIp(instance types.Instance) (newIp Ip, err error) {

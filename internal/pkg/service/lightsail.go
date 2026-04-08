@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -31,8 +33,10 @@ func (c *LightsailSrvConfig) isStaticKeySecret() bool {
 }
 
 type LightSailService struct {
-	conf   *LightsailSrvConfig
-	client *lightsail.Client
+	conf       *LightsailSrvConfig
+	client     *lightsail.Client
+	clientOnce sync.Once
+	clientErr  error
 }
 
 func NewLightSailService(conf *LightsailSrvConfig) (*LightSailService, error) {
@@ -43,22 +47,18 @@ func NewLightSailService(conf *LightsailSrvConfig) (*LightSailService, error) {
 }
 
 func (s *LightSailService) GetClient() (*lightsail.Client, error) {
-	if s.client != nil {
-		return s.client, nil
-	}
-	var err error
-	var cfg aws.Config
-	if s.conf.isStaticKeySecret() {
-		cfg, err = config.LoadDefaultConfig(context.TODO(), config.WithRegion(s.conf.Region), config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(s.conf.Key, s.conf.Secret, "")))
-	} else {
-		cfg, err = config.LoadDefaultConfig(context.TODO(), config.WithRegion(s.conf.Region))
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	client := lightsail.NewFromConfig(cfg)
-	s.client = client
-	return client, nil
+	s.clientOnce.Do(func() {
+		var cfg aws.Config
+		if s.conf.isStaticKeySecret() {
+			cfg, s.clientErr = config.LoadDefaultConfig(context.TODO(), config.WithRegion(s.conf.Region), config.WithCredentialsProvider(
+				credentials.NewStaticCredentialsProvider(s.conf.Key, s.conf.Secret, "")))
+		} else {
+			cfg, s.clientErr = config.LoadDefaultConfig(context.TODO(), config.WithRegion(s.conf.Region))
+		}
+		if s.clientErr != nil {
+			return
+		}
+		s.client = lightsail.NewFromConfig(cfg)
+	})
+	return s.client, s.clientErr
 }

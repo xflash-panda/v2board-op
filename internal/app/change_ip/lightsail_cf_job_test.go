@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
 )
@@ -61,13 +62,6 @@ func TestStaticIpsCacheStoreAfterAllocate(t *testing.T) {
 	}
 }
 
-func TestProcessInstanceRouting_StaticIp(t *testing.T) {
-	isStaticIp := true
-	if !isStaticIp {
-		t.Error("expected static IP path to be chosen")
-	}
-}
-
 func TestProcessInstanceRouting_MaxStaticIps_MustRestart(t *testing.T) {
 	job := &LightsailCFJob{}
 	for i := 0; i < 5; i++ {
@@ -75,11 +69,8 @@ func TestProcessInstanceRouting_MaxStaticIps_MustRestart(t *testing.T) {
 		job.staticIps.Store(ip, types.StaticIp{})
 	}
 
-	if job.lenStaticIps() < 5 {
-		t.Fatal("expected >= 5 static IPs")
-	}
-	if job.lenStaticIps() < 5 {
-		t.Error("should trigger restart path when static IPs are at max")
+	if got := job.lenStaticIps(); got < 5 {
+		t.Fatalf("expected >= 5 static IPs, got %d", got)
 	}
 }
 
@@ -211,5 +202,76 @@ func TestStaticIpMutexPreventsOverAllocation(t *testing.T) {
 	}
 	if got := job.lenStaticIps(); got != 5 {
 		t.Errorf("expected 5 static IPs, got %d", got)
+	}
+}
+
+// updatePeak atomically tracks the peak value seen across goroutines.
+func updatePeak(peak *atomic.Int64, cur int64) {
+	for {
+		old := peak.Load()
+		if cur <= old || peak.CompareAndSwap(old, cur) {
+			return
+		}
+	}
+}
+
+func TestRunConcurrency_ParallelExecution(t *testing.T) {
+	var current atomic.Int64
+	var peak atomic.Int64
+	var wg sync.WaitGroup
+
+	concurrency := 5
+	sem := make(chan struct{}, concurrency)
+
+	start := time.Now()
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			cur := current.Add(1)
+			updatePeak(&peak, cur)
+			time.Sleep(100 * time.Millisecond)
+			current.Add(-1)
+		}()
+	}
+	wg.Wait()
+	elapsed := time.Since(start)
+
+	if elapsed > 300*time.Millisecond {
+		t.Errorf("expected parallel execution (<300ms), took %v", elapsed)
+	}
+	if p := peak.Load(); p < 2 {
+		t.Errorf("expected peak concurrency >= 2, got %d", p)
+	}
+}
+
+func TestRunConcurrencyLimit(t *testing.T) {
+	maxConcurrency := 3
+	var current atomic.Int64
+	var peak atomic.Int64
+	var wg sync.WaitGroup
+
+	sem := make(chan struct{}, maxConcurrency)
+
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			cur := current.Add(1)
+			updatePeak(&peak, cur)
+			time.Sleep(50 * time.Millisecond)
+			current.Add(-1)
+		}()
+	}
+	wg.Wait()
+
+	if p := peak.Load(); p > int64(maxConcurrency) {
+		t.Errorf("peak concurrency %d exceeded limit %d", p, maxConcurrency)
 	}
 }

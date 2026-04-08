@@ -2,6 +2,8 @@ package service
 
 import (
 	"fmt"
+	"sync"
+
 	"github.com/cloudflare/cloudflare-go"
 )
 
@@ -22,8 +24,10 @@ func (c *CloudflareSrvConfig) Check() error {
 }
 
 type CloudflareService struct {
-	conf *CloudflareSrvConfig
-	api  *cloudflare.API
+	conf    *CloudflareSrvConfig
+	api     *cloudflare.API
+	apiOnce sync.Once
+	apiErr  error
 }
 
 func NewCloudflareService(conf *CloudflareSrvConfig) (*CloudflareService, error) {
@@ -34,13 +38,8 @@ func NewCloudflareService(conf *CloudflareSrvConfig) (*CloudflareService, error)
 }
 
 func (s *CloudflareService) GetAPI() (*cloudflare.API, error) {
-	if s.api != nil {
-		return s.api, nil
-	}
-	api, err := cloudflare.New(s.conf.Key, s.conf.Email)
-	if err != nil {
-		return nil, err
-	}
-	s.api = api
-	return api, nil
+	s.apiOnce.Do(func() {
+		s.api, s.apiErr = cloudflare.New(s.conf.Key, s.conf.Email)
+	})
+	return s.api, s.apiErr
 }
