@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"sync"
@@ -72,13 +73,22 @@ type LightsailCFJob struct {
 
 func dnsKey(host, ip string) string { return host + "|" + ip }
 
-// uniqueHosts collects the deduplicated set of hosts referenced by the
-// banned list.
+// hostNeedsDNS reports whether a banned record's host should be treated as a
+// DNS name. Empty strings and raw IPv4/IPv6 addresses cannot be looked up in
+// Cloudflare and would either error out the whole job or write records into
+// an unrelated zone, so callers must skip such entries.
+func hostNeedsDNS(host string) bool {
+	return host != "" && net.ParseIP(host) == nil
+}
+
+// uniqueHosts collects the deduplicated set of DNS-resolvable hosts
+// referenced by the banned list. Empty hosts and raw IPs are dropped here
+// so the DNS preparation step never tries to resolve them as zones.
 func uniqueHosts(items []*api.BannedHostInfo) []string {
 	seen := make(map[string]struct{}, len(items))
 	out := make([]string, 0, len(items))
 	for _, it := range items {
-		if it.Host == "" {
+		if !hostNeedsDNS(it.Host) {
 			continue
 		}
 		if _, ok := seen[it.Host]; ok {
@@ -368,12 +378,14 @@ func (m *LightsailCFJob) batchPing(items []*api.BannedHostInfo) map[string]bool 
 func (m *LightsailCFJob) processBannedItem(bannedItem *api.BannedHostInfo) {
 	log.Infof("current banned host: %s", bannedItem)
 	host := bannedItem.Host
-	if host == "" {
+	if !hostNeedsDNS(host) {
 		// Aborting before any side effect keeps panel + DNS state coherent:
-		// rotating the IP and notifying the panel without updating DNS would
-		// leave Cloudflare pointing at the stale (banned) IP indefinitely.
+		// rotating the IP and notifying the panel without a DNS update would
+		// strand clients on the old (banned) IP. IP-as-host nodes likewise
+		// need manual handling — clients hard-code the address and would
+		// break the moment the underlying instance gets a new IP.
 		m.stats.fail.Add(1)
-		log.Errorf("Banned item %s has no host; aborting to avoid stale DNS", bannedItem)
+		log.Errorf("Banned item %s has no DNS host (empty or raw IP); aborting", bannedItem)
 		return
 	}
 	instance, ok := m.instances.Load(bannedItem.IP)
