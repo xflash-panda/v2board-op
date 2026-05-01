@@ -79,13 +79,6 @@ func main() {
 				Required:    true,
 			},
 			&cli.StringFlag{
-				Name:        "cloudflare_domain",
-				Usage:       "Cloudflare Domain",
-				EnvVars:     []string{"X_CLOUDFLARE_DOMAIN", "cloudflare_domain"},
-				Destination: &lightsailCFJobConfig.Domain,
-				Required:    true,
-			},
-			&cli.StringFlag{
 				Name:        "cloudflare_email",
 				Usage:       "Cloudflare Email",
 				EnvVars:     []string{"X_CLOUDFLARE_EMAIL", "CLOUDFLARE_EMAIL"},

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	"github.com/xflash-panda/v2board-op/internal/pkg/api"
 )
 
 func TestLenStaticIps_Empty(t *testing.T) {
@@ -102,37 +103,71 @@ func TestProcessInstanceRouting_ReleaseFreesSlot(t *testing.T) {
 }
 
 func TestConfigCheck_EmptyTags(t *testing.T) {
-	conf := &LightsailCFJobConfig{Domain: "test.example.com"}
+	conf := &LightsailCFJobConfig{}
 	if err := conf.check(); err == nil {
 		t.Error("expected error for empty tags")
 	}
 }
 
-func TestConfigCheck_EmptyDomain(t *testing.T) {
-	conf := &LightsailCFJobConfig{QueryTags: []string{"tag1"}}
-	if err := conf.check(); err == nil {
-		t.Error("expected error for empty domain")
-	}
-}
-
-func TestConfigCheck_InvalidDomain(t *testing.T) {
-	conf := &LightsailCFJobConfig{QueryTags: []string{"tag1"}, Domain: "not valid!"}
-	if err := conf.check(); err == nil {
-		t.Error("expected error for invalid domain")
-	}
-}
-
 func TestConfigCheck_Valid(t *testing.T) {
-	conf := &LightsailCFJobConfig{QueryTags: []string{"tag1"}, Domain: "test.example.com"}
+	conf := &LightsailCFJobConfig{QueryTags: []string{"tag1"}}
 	if err := conf.check(); err != nil {
 		t.Errorf("expected no error, got: %v", err)
+	}
+}
+
+func TestUniqueHosts_DedupesAcrossItems(t *testing.T) {
+	items := []*api.BannedHostInfo{
+		{Host: "trojan.example.com", IP: "1.1.1.1"},
+		{Host: "anytls.example.com", IP: "1.1.1.2"},
+		{Host: "trojan.example.com", IP: "1.1.1.3"},
+	}
+	hosts := uniqueHosts(items)
+	if len(hosts) != 2 {
+		t.Fatalf("expected 2 unique hosts, got %d (%v)", len(hosts), hosts)
+	}
+	got := map[string]bool{hosts[0]: true, hosts[1]: true}
+	if !got["trojan.example.com"] || !got["anytls.example.com"] {
+		t.Errorf("missing expected host: %v", hosts)
+	}
+}
+
+func TestUniqueHosts_SkipsItemsWithoutHost(t *testing.T) {
+	items := []*api.BannedHostInfo{
+		{Host: "", IP: "1.1.1.1"},
+		{Host: "trojan.example.com", IP: "1.1.1.2"},
+	}
+	hosts := uniqueHosts(items)
+	if len(hosts) != 1 || hosts[0] != "trojan.example.com" {
+		t.Errorf("expected only the item with host: %v", hosts)
+	}
+}
+
+func TestDnsKey_Composition(t *testing.T) {
+	if got := dnsKey("a.example.com", "1.1.1.1"); got != "a.example.com|1.1.1.1" {
+		t.Errorf("unexpected dnsKey: %s", got)
+	}
+}
+
+func TestLockFilePath_StableAcrossOrdering(t *testing.T) {
+	a := lockFilePath(&LightsailCFJobConfig{QueryTags: []string{"tag1", "tag2"}})
+	b := lockFilePath(&LightsailCFJobConfig{QueryTags: []string{"tag2", "tag1"}})
+	if a != b {
+		t.Errorf("lock path should be stable across tag ordering: %s vs %s", a, b)
+	}
+}
+
+func TestLockFilePath_DiffersForDifferentTags(t *testing.T) {
+	a := lockFilePath(&LightsailCFJobConfig{QueryTags: []string{"tag1"}})
+	b := lockFilePath(&LightsailCFJobConfig{QueryTags: []string{"tag2"}})
+	if a == b {
+		t.Errorf("different tags should produce different lock paths: %s", a)
 	}
 }
 
 func TestConfigCheck_ZeroConcurrency_DefaultsValid(t *testing.T) {
 	conf := &LightsailCFJobConfig{
 		QueryTags:   []string{"tag1"},
-		Domain:      "test.example.com",
 		Concurrency: 0,
 	}
 	if err := conf.check(); err != nil {
@@ -143,7 +178,6 @@ func TestConfigCheck_ZeroConcurrency_DefaultsValid(t *testing.T) {
 func TestConfigCheck_NegativeConcurrency(t *testing.T) {
 	conf := &LightsailCFJobConfig{
 		QueryTags:   []string{"tag1"},
-		Domain:      "test.example.com",
 		Concurrency: -1,
 	}
 	if err := conf.check(); err == nil {
