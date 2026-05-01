@@ -17,6 +17,7 @@ type API interface {
 type BannedHostInfo struct {
 	ID   int    `json:"id"`
 	Type string `json:"type"`
+	Host string `json:"host"`
 	IP   string `json:"ip"`
 	Port int    `json:"port"`
 }
@@ -46,5 +47,5 @@ type RepTestPingBatch struct {
 }
 
 func (i *BannedHostInfo) String() string {
-	return fmt.Sprintf("{type: %s id: %d ip: %s port: %d}", i.Type, i.ID, i.IP, i.Port)
+	return fmt.Sprintf("{type: %s id: %d host: %s ip: %s port: %d}", i.Type, i.ID, i.Host, i.IP, i.Port)
 }

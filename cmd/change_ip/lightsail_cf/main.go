@@ -16,7 +16,7 @@ import (
 
 const (
 	Name                       = "change-ip(lightsail-cf)"
-	Version                    = "0.3.0"
+	Version                    = "0.4.0"
 	CopyRight                  = "XFLASH-PANDA@2023"
 	LogLevelDebug              = "debug"
 	LogLevelError              = "error"
@@ -76,13 +76,6 @@ func main() {
 				Usage:       "Used for internal query filtering nodes",
 				EnvVars:     []string{"X_SERVER_QUERY_TAGS", "QUERY_TAGS"},
 				Destination: serverQueryTags,
-				Required:    true,
-			},
-			&cli.StringFlag{
-				Name:        "cloudflare_domain",
-				Usage:       "Cloudflare Domain",
-				EnvVars:     []string{"X_CLOUDFLARE_DOMAIN", "cloudflare_domain"},
-				Destination: &lightsailCFJobConfig.Domain,
 				Required:    true,
 			},
 			&cli.StringFlag{
