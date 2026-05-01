@@ -143,6 +143,41 @@ func TestUniqueHosts_SkipsItemsWithoutHost(t *testing.T) {
 	}
 }
 
+func TestUniqueHosts_SkipsIPAsHost(t *testing.T) {
+	// Nodes whose host field is a raw IP must not reach the DNS layer:
+	// rootDomain extraction would either error out or, worse, collide with
+	// a real zone and write records into the wrong place.
+	items := []*api.BannedHostInfo{
+		{Host: "1.2.3.4", IP: "1.2.3.4"},
+		{Host: "2001:db8::1", IP: "2001:db8::1"},
+		{Host: "trojan.example.com", IP: "5.6.7.8"},
+	}
+	hosts := uniqueHosts(items)
+	if len(hosts) != 1 || hosts[0] != "trojan.example.com" {
+		t.Errorf("expected raw IPs to be filtered out, got: %v", hosts)
+	}
+}
+
+func TestHostNeedsDNS(t *testing.T) {
+	cases := []struct {
+		host string
+		want bool
+	}{
+		{"trojan.example.com", true},
+		{"a.b.c.d.example.com", true},
+		{"", false},
+		{"1.2.3.4", false},
+		{"255.255.255.255", false},
+		{"2001:db8::1", false},
+		{"::1", false},
+	}
+	for _, c := range cases {
+		if got := hostNeedsDNS(c.host); got != c.want {
+			t.Errorf("hostNeedsDNS(%q) = %v, want %v", c.host, got, c.want)
+		}
+	}
+}
+
 func TestDnsKey_Composition(t *testing.T) {
 	if got := dnsKey("a.example.com", "1.1.1.1"); got != "a.example.com|1.1.1.1" {
 		t.Errorf("unexpected dnsKey: %s", got)
