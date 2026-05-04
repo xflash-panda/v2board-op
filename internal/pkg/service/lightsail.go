@@ -79,6 +79,10 @@ func (s *LightSailService) GetClient() (*lightsail.Client, error) {
 	return s.client, s.clientErr
 }
 
+// GetClientForRegion returns a Lightsail client for the given region. Clients
+// are cached per region (sync.Map) and shared across goroutines. Use this
+// when you need to query multiple regions in parallel; for single-region
+// usage call GetClient instead.
 func (s *LightSailService) GetClientForRegion(ctx context.Context, region string) (*lightsail.Client, error) {
 	if v, ok := s.regionClients.Load(region); ok {
 		return v.(*lightsail.Client), nil

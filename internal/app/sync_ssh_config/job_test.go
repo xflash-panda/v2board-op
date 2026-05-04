@@ -14,6 +14,7 @@ import (
 
 // fakeAPI implements LightsailAPI for tests.
 type fakeAPI struct {
+	mu            sync.Mutex
 	regionsOut    *lightsail.GetRegionsOutput
 	regionsErr    error
 	instancesOut  map[string]*lightsail.GetInstancesOutput // optFns "Region" key -> output
@@ -31,6 +32,8 @@ func (f *fakeAPI) GetInstances(ctx context.Context, params *lightsail.GetInstanc
 		fn(opts)
 	}
 	region := opts.Region
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.instancesCall[region]++
 	if err, ok := f.instancesErr[region]; ok {
 		return nil, err

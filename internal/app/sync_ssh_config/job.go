@@ -24,11 +24,16 @@ type ClientFactory func(ctx context.Context, region string) (LightsailAPI, error
 // global. We use us-east-1 because it has the highest service availability.
 const seedRegion = "us-east-1"
 
+// SyncJob orchestrates concurrent fetching of Lightsail instances across
+// every region returned by GetRegions. The result is a single name->IP map
+// suitable for diffing against an SSH config.
 type SyncJob struct {
 	factory     ClientFactory
 	concurrency int
 }
 
+// NewSyncJob returns a SyncJob configured to query at most `concurrency`
+// regions in parallel. A non-positive concurrency defaults to 8.
 func NewSyncJob(factory ClientFactory, concurrency int) *SyncJob {
 	if concurrency <= 0 {
 		concurrency = 8
