@@ -22,9 +22,6 @@ type LightsailSrvConfig struct {
 }
 
 func (c *LightsailSrvConfig) Check() error {
-	if len(c.Region) == 0 {
-		return fmt.Errorf("configuration error: %s", "lightsail region  is empty")
-	}
 	return nil
 }
 
@@ -37,6 +34,8 @@ type LightSailService struct {
 	client     *lightsail.Client
 	clientOnce sync.Once
 	clientErr  error
+
+	regionClients sync.Map // region(string) -> *lightsail.Client
 }
 
 func NewLightSailService(conf *LightsailSrvConfig) (*LightSailService, error) {
@@ -46,19 +45,41 @@ func NewLightSailService(conf *LightsailSrvConfig) (*LightSailService, error) {
 	return &LightSailService{conf: conf}, nil
 }
 
+func (s *LightSailService) loadAWSConfig(ctx context.Context, region string) (aws.Config, error) {
+	opts := []func(*config.LoadOptions) error{config.WithRegion(region)}
+	if s.conf.isStaticKeySecret() {
+		opts = append(opts, config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(s.conf.Key, s.conf.Secret, ""),
+		))
+	}
+	return config.LoadDefaultConfig(ctx, opts...)
+}
+
 func (s *LightSailService) GetClient() (*lightsail.Client, error) {
 	s.clientOnce.Do(func() {
-		var cfg aws.Config
-		if s.conf.isStaticKeySecret() {
-			cfg, s.clientErr = config.LoadDefaultConfig(context.TODO(), config.WithRegion(s.conf.Region), config.WithCredentialsProvider(
-				credentials.NewStaticCredentialsProvider(s.conf.Key, s.conf.Secret, "")))
-		} else {
-			cfg, s.clientErr = config.LoadDefaultConfig(context.TODO(), config.WithRegion(s.conf.Region))
+		if len(s.conf.Region) == 0 {
+			s.clientErr = fmt.Errorf("GetClient requires LightsailSrvConfig.Region to be set; use GetClientForRegion for multi-region usage")
+			return
 		}
-		if s.clientErr != nil {
+		cfg, err := s.loadAWSConfig(context.TODO(), s.conf.Region)
+		if err != nil {
+			s.clientErr = err
 			return
 		}
 		s.client = lightsail.NewFromConfig(cfg)
 	})
 	return s.client, s.clientErr
+}
+
+func (s *LightSailService) GetClientForRegion(ctx context.Context, region string) (*lightsail.Client, error) {
+	if v, ok := s.regionClients.Load(region); ok {
+		return v.(*lightsail.Client), nil
+	}
+	cfg, err := s.loadAWSConfig(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	client := lightsail.NewFromConfig(cfg)
+	actual, _ := s.regionClients.LoadOrStore(region, client)
+	return actual.(*lightsail.Client), nil
 }
