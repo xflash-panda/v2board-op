@@ -20,7 +20,7 @@ import (
 
 const (
 	Name      = "sync-ssh-config(lightsail)"
-	Version   = "0.1.0"
+	Version   = "0.5.0"
 	CopyRight = "XFLASH-PANDA@2026"
 )
 

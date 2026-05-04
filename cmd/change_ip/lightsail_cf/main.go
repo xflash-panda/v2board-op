@@ -17,7 +17,7 @@ import (
 
 const (
 	Name                       = "change-ip(lightsail-cf)"
-	Version                    = "0.4.1"
+	Version                    = "0.5.0"
 	CopyRight                  = "XFLASH-PANDA@2023"
 	DefaultJobMaxTryNum    int = 5
 	DefaultLightsailRegion     = "ap-northeast-1"
