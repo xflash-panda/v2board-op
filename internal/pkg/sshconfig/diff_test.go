@@ -61,3 +61,33 @@ func TestDiff_BlockWithoutHostNameIgnored(t *testing.T) {
 		t.Errorf("block without HostName should not be updated, got %+v", updates)
 	}
 }
+
+func TestRenderDiff_Format(t *testing.T) {
+	updates := []Update{
+		{Alias: "alpha", OldIP: "1.1.1.1", NewIP: "9.9.9.9", Line: 1},
+		{Alias: "beta", OldIP: "2.2.2.2", NewIP: "8.8.8.8", Line: 4},
+	}
+	out := RenderDiff(updates, 3, []string{"gamma", "delta"})
+
+	want := `Host alpha
+- HostName 1.1.1.1
++ HostName 9.9.9.9
+
+Host beta
+- HostName 2.2.2.2
++ HostName 8.8.8.8
+
+2 hosts to update, 3 unchanged, 2 unmatched (skipped).
+`
+	if out != want {
+		t.Errorf("RenderDiff output mismatch.\nGOT:\n%s\nWANT:\n%s", out, want)
+	}
+}
+
+func TestRenderDiff_NoUpdates(t *testing.T) {
+	out := RenderDiff(nil, 5, nil)
+	want := "0 hosts to update, 5 unchanged, 0 unmatched (skipped).\n"
+	if out != want {
+		t.Errorf("got:\n%s\nwant:\n%s", out, want)
+	}
+}
