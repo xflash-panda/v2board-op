@@ -52,23 +52,31 @@ func (c *Config) ApplyAndWrite(path string, updates []Update) (string, error) {
 	tmp := fmt.Sprintf("%s.tmp.%d", path, os.Getpid())
 	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
 	if err != nil {
+		os.Remove(backup)
 		return "", fmt.Errorf("open temp: %w", err)
 	}
 	if _, err := io.WriteString(out, strings.Join(newLines, "\n")); err != nil {
 		out.Close()
 		os.Remove(tmp)
+		os.Remove(backup)
 		return "", fmt.Errorf("write temp: %w", err)
 	}
-	// Preserve trailing newline if the original had one.
+	// Append a trailing newline when the file is non-empty.
+	// SSH config files conventionally end in '\n'; the bufio.Scanner used by
+	// Parse drops the final newline, so we re-add one here. This may add a
+	// trailing '\n' to a file that originally lacked one — acceptable since
+	// SSH config does not assign meaning to trailing whitespace.
 	if len(c.Lines) > 0 {
 		if _, err := io.WriteString(out, "\n"); err != nil {
 			out.Close()
 			os.Remove(tmp)
+			os.Remove(backup)
 			return "", err
 		}
 	}
 	if err := out.Close(); err != nil {
 		os.Remove(tmp)
+		os.Remove(backup)
 		return "", err
 	}
 	if err := os.Rename(tmp, path); err != nil {
