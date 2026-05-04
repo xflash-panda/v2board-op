@@ -98,6 +98,8 @@ func (j *SyncJob) FetchInstances(ctx context.Context) (map[string]string, error)
 			return nil
 		})
 	}
+	// Goroutines never return errors (per-region failures are tracked in
+	// failureCnt and logged), so g.Wait() always returns nil.
 	_ = g.Wait()
 
 	if successCnt == 0 && failureCnt > 0 {

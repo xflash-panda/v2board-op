@@ -12,15 +12,13 @@ import (
 	"github.com/xflash-panda/v2board-op/internal/app/change_ip"
 	"github.com/xflash-panda/v2board-op/internal/pkg/api"
 	"github.com/xflash-panda/v2board-op/internal/pkg/service"
+	"github.com/xflash-panda/v2board-op/internal/pkg/util"
 )
 
 const (
 	Name                       = "change-ip(lightsail-cf)"
 	Version                    = "0.4.1"
 	CopyRight                  = "XFLASH-PANDA@2023"
-	LogLevelDebug              = "debug"
-	LogLevelError              = "error"
-	LogLevelInfo               = "info"
 	DefaultJobMaxTryNum    int = 5
 	DefaultLightsailRegion     = "ap-northeast-1"
 )
@@ -132,7 +130,7 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:        "log_mode",
-				Value:       LogLevelError,
+				Value:       "error",
 				Usage:       "Log mode",
 				EnvVars:     []string{"X_LOG_LEVEL", "LOG_LEVEL"},
 				Destination: &logLevel,
@@ -140,22 +138,7 @@ func main() {
 			},
 		},
 		Before: func(c *cli.Context) error {
-			log.SetFormatter(&log.TextFormatter{})
-			switch logLevel {
-			case LogLevelDebug:
-				log.SetFormatter(&log.TextFormatter{
-					FullTimestamp: true,
-				})
-				log.SetLevel(log.DebugLevel)
-				log.SetReportCaller(false)
-			case LogLevelInfo:
-				log.SetLevel(log.InfoLevel)
-			case LogLevelError:
-				log.SetLevel(log.ErrorLevel)
-			default:
-				return fmt.Errorf("log mode %s not supported", logLevel)
-			}
-			return nil
+			return util.SetupLogger(logLevel)
 		},
 		Action: func(c *cli.Context) error {
 			log.Debugln("api host: ", apiConfig.APIHost)
@@ -171,7 +154,7 @@ func main() {
 			log.Debugln("server query tags: ", serverQueryTags)
 			log.Debugln("lightsail region: ", lightsailSrvConfig.Region)
 
-			if logLevel != LogLevelDebug {
+			if logLevel != "debug" {
 				defer func() {
 					if e := recover(); e != nil {
 						panic(e)

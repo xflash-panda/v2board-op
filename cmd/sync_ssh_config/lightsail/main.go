@@ -15,16 +15,13 @@ import (
 	"github.com/xflash-panda/v2board-op/internal/app/sync_ssh_config"
 	"github.com/xflash-panda/v2board-op/internal/pkg/service"
 	"github.com/xflash-panda/v2board-op/internal/pkg/sshconfig"
+	"github.com/xflash-panda/v2board-op/internal/pkg/util"
 )
 
 const (
 	Name      = "sync-ssh-config(lightsail)"
 	Version   = "0.1.0"
 	CopyRight = "XFLASH-PANDA@2026"
-
-	LogLevelDebug = "debug"
-	LogLevelInfo  = "info"
-	LogLevelError = "error"
 )
 
 func init() {
@@ -88,26 +85,14 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:        "log_mode",
-				Value:       LogLevelInfo,
+				Value:       "info",
 				Usage:       "Log level: debug | info | error",
 				EnvVars:     []string{"X_LOG_LEVEL", "LOG_LEVEL"},
 				Destination: &logLevel,
 			},
 		},
 		Before: func(c *cli.Context) error {
-			log.SetFormatter(&log.TextFormatter{})
-			switch logLevel {
-			case LogLevelDebug:
-				log.SetFormatter(&log.TextFormatter{FullTimestamp: true})
-				log.SetLevel(log.DebugLevel)
-			case LogLevelInfo:
-				log.SetLevel(log.InfoLevel)
-			case LogLevelError:
-				log.SetLevel(log.ErrorLevel)
-			default:
-				return fmt.Errorf("log mode %s not supported", logLevel)
-			}
-			return nil
+			return util.SetupLogger(logLevel)
 		},
 		Action: func(c *cli.Context) error {
 			expanded, err := expandHome(configPath)
