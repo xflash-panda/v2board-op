@@ -102,7 +102,10 @@ func TestParse_SkipsWildcard(t *testing.T) {
 Host real
     HostName 9.9.9.9
 `)
-	cfg, _ := Parse(path)
+	cfg, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
 	if len(cfg.Blocks) != 2 {
 		t.Fatalf("want 2 blocks, got %d", len(cfg.Blocks))
 	}
@@ -118,7 +121,10 @@ func TestParse_SkipsMultiAlias(t *testing.T) {
 	path := writeTempConfig(t, `Host a b c
     HostName 1.2.3.4
 `)
-	cfg, _ := Parse(path)
+	cfg, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
 	if len(cfg.Blocks) != 1 {
 		t.Fatalf("want 1 block, got %d", len(cfg.Blocks))
 	}
@@ -138,7 +144,10 @@ Match host other
 Host another
     HostName 3.3.3.3
 `)
-	cfg, _ := Parse(path)
+	cfg, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
 	// Expect: real, another. The Match block produces no HostBlock.
 	if len(cfg.Blocks) != 2 {
 		t.Fatalf("want 2 blocks (real, another), got %d", len(cfg.Blocks))
@@ -154,7 +163,10 @@ func TestParse_BlockWithoutHostName(t *testing.T) {
     User x
     Port 22
 `)
-	cfg, _ := Parse(path)
+	cfg, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
 	if len(cfg.Blocks) != 1 {
 		t.Fatalf("want 1 block, got %d", len(cfg.Blocks))
 	}
@@ -169,7 +181,10 @@ func TestParse_IndentedHostNameLineNumber(t *testing.T) {
 	// 1: (blank)
 	// 2:     HostName 1.1.1.1
 	path := writeTempConfig(t, "Host alpha\n\n    HostName 1.1.1.1\n")
-	cfg, _ := Parse(path)
+	cfg, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
 	if len(cfg.Blocks) != 1 {
 		t.Fatalf("want 1 block, got %d", len(cfg.Blocks))
 	}
@@ -183,7 +198,10 @@ func TestParse_FirstHostNameWins(t *testing.T) {
     HostName 1.1.1.1
     HostName 2.2.2.2
 `)
-	cfg, _ := Parse(path)
+	cfg, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
 	if cfg.Blocks[0].HostNameIP != "1.1.1.1" {
 		t.Errorf("first HostName should win, got %q", cfg.Blocks[0].HostNameIP)
 	}
