@@ -27,6 +27,9 @@ go.work
 cmd/change_ip/lightsail_cf/lightsail_cf
 # Binary produced when running `go build ./...` from the repo root
 /lightsail_cf
+/lightsail
+# Local build output (Makefile `make build`)
+/bin/
 
 # End of https://www.toptal.com/developers/gitignore/api/go
 

@@ -55,4 +55,6 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -trimpath -ldflags "-s -w" ./cmd/change_ip/lightsail_cf
+        run: |
+          go build -trimpath -ldflags "-s -w" ./cmd/change_ip/lightsail_cf
+          go build -trimpath -ldflags "-s -w" ./cmd/sync_ssh_config/lightsail

@@ -22,24 +22,25 @@ jobs:
       CGO_ENABLED: 0
     steps:
       - name: Checkout codebase
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v4
       - name: Show workflow information
         id: get_filename
         run: |
           export _NAME=$(jq ".[\"$GOOS-$GOARCH$GOARM$GOMIPS\"].friendlyName" -r < .github/build/friendly-filenames.json)
           echo "GOOS: $GOOS, GOARCH: $GOARCH, GOARM: $GOARM, GOMIPS: $GOMIPS, RELEASE_NAME: $_NAME"
-          echo "::set-output name=ASSET_NAME::$_NAME"
+          echo "ASSET_NAME=$_NAME" >> $GITHUB_OUTPUT
           echo "ASSET_NAME=$_NAME" >> $GITHUB_ENV
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.23.8
+          go-version: "1.25"
       - name: Get project dependencies
         run: go mod download
       - name: Build Server
         run: |
-          mkdir -p build_assets/change_ip
+          mkdir -p build_assets/change_ip build_assets/sync_ssh_config
           go build -v -o build_assets/change_ip/lightsail_cf -trimpath -ldflags "-s -w" ./cmd/change_ip/lightsail_cf
+          go build -v -o build_assets/sync_ssh_config/lightsail -trimpath -ldflags "-s -w" ./cmd/sync_ssh_config/lightsail
       - name: Prepare to release
         run: |
           cp ${GITHUB_WORKSPACE}/README.md ./build_assets/README.md
