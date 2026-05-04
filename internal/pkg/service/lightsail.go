@@ -21,6 +21,10 @@ type LightsailSrvConfig struct {
 	Region string
 }
 
+// Check validates the configuration. Region is intentionally optional here:
+// callers using GetClient (single-region) must set Region before the first
+// call; callers using GetClientForRegion (multi-region) supply the region
+// per call.
 func (c *LightsailSrvConfig) Check() error {
 	return nil
 }
@@ -55,6 +59,10 @@ func (s *LightSailService) loadAWSConfig(ctx context.Context, region string) (aw
 	return config.LoadDefaultConfig(ctx, opts...)
 }
 
+// GetClient returns a memoized Lightsail client using the Region set in
+// LightsailSrvConfig. Region must be non-empty before the first call;
+// the result of the first call (success or error) is cached permanently.
+// For multi-region usage, use GetClientForRegion instead.
 func (s *LightSailService) GetClient() (*lightsail.Client, error) {
 	s.clientOnce.Do(func() {
 		if len(s.conf.Region) == 0 {
