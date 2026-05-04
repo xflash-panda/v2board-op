@@ -59,6 +59,8 @@ func parseBlocks(lines []string) []*HostBlock {
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
+		// Normalize keyword=value → keyword value (per ssh_config(5)).
+		trimmed = strings.Replace(trimmed, "=", " ", 1)
 		fields := strings.Fields(trimmed)
 		if len(fields) < 2 {
 			continue
