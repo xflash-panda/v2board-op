@@ -27,3 +27,7 @@ go.work
 cmd/change_ip/lightsail_cf/lightsail_cf
 
 # End of https://www.toptal.com/developers/gitignore/api/go
+
+# Local agent design artifacts
+/docs/superpowers/
+/.superpowers/
