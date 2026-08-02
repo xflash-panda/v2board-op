@@ -35,3 +35,6 @@ docs/superpowers/
 # Claude config
 CLAUDE.md
 .claude/
+
+# Local agent design artifacts
+/.superpowers/
