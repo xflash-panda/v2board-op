@@ -11,6 +11,117 @@ import (
 	"github.com/xflash-panda/v2board-op/internal/pkg/api"
 )
 
+func TestRotateUntilReachable_FirstAttemptReachable(t *testing.T) {
+	calls := 0
+	ip, reachable, err := rotateUntilReachable(3,
+		func() (string, error) { calls++; return fmt.Sprintf("ip%d", calls), nil },
+		func(string) (bool, bool) { return true, true },
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ip != "ip1" || !reachable || calls != 1 {
+		t.Errorf("expected (ip1, true, 1 call), got (%s, %v, %d calls)", ip, reachable, calls)
+	}
+}
+
+func TestRotateUntilReachable_ThirdAttemptReachable(t *testing.T) {
+	calls := 0
+	ip, reachable, err := rotateUntilReachable(3,
+		func() (string, error) { calls++; return fmt.Sprintf("ip%d", calls), nil },
+		func(ip string) (bool, bool) { return ip == "ip3", true },
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ip != "ip3" || !reachable || calls != 3 {
+		t.Errorf("expected (ip3, true, 3 calls), got (%s, %v, %d calls)", ip, reachable, calls)
+	}
+}
+
+func TestRotateUntilReachable_AllBlockedCommitsLastIp(t *testing.T) {
+	calls := 0
+	ip, reachable, err := rotateUntilReachable(3,
+		func() (string, error) { calls++; return fmt.Sprintf("ip%d", calls), nil },
+		func(string) (bool, bool) { return false, true },
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ip != "ip3" || reachable || calls != 3 {
+		t.Errorf("expected (ip3, false, 3 calls), got (%s, %v, %d calls)", ip, reachable, calls)
+	}
+}
+
+func TestRotateUntilReachable_UnverifiableStopsEarly(t *testing.T) {
+	calls := 0
+	ip, reachable, err := rotateUntilReachable(3,
+		func() (string, error) { calls++; return fmt.Sprintf("ip%d", calls), nil },
+		func(string) (bool, bool) { return false, false }, // ping API unavailable
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Must NOT waste further (expensive) rotations when reachability is unknown.
+	if ip != "ip1" || reachable || calls != 1 {
+		t.Errorf("expected (ip1, false, 1 call), got (%s, %v, %d calls)", ip, reachable, calls)
+	}
+}
+
+func TestRotateUntilReachable_AllRotationsError(t *testing.T) {
+	calls := 0
+	ip, reachable, err := rotateUntilReachable(3,
+		func() (string, error) { calls++; return "", fmt.Errorf("boom%d", calls) },
+		func(string) (bool, bool) { return true, true },
+	)
+	if err == nil {
+		t.Fatal("expected error when every rotation fails")
+	}
+	if ip != "" || reachable || calls != 3 {
+		t.Errorf("expected (\"\", false, 3 calls), got (%s, %v, %d calls)", ip, reachable, calls)
+	}
+}
+
+func TestRotateUntilReachable_ErrorThenReachable(t *testing.T) {
+	calls := 0
+	ip, reachable, err := rotateUntilReachable(3,
+		func() (string, error) {
+			calls++
+			if calls == 1 {
+				return "", fmt.Errorf("boom")
+			}
+			return fmt.Sprintf("ip%d", calls), nil
+		},
+		func(ip string) (bool, bool) { return ip == "ip2", true },
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ip != "ip2" || !reachable || calls != 2 {
+		t.Errorf("expected (ip2, true, 2 calls), got (%s, %v, %d calls)", ip, reachable, calls)
+	}
+}
+
+func TestRotateUntilReachable_BlockedThenErrorsReturnsLastIp(t *testing.T) {
+	calls := 0
+	ip, reachable, err := rotateUntilReachable(3,
+		func() (string, error) {
+			calls++
+			if calls == 1 {
+				return "ip1", nil
+			}
+			return "", fmt.Errorf("boom")
+		},
+		func(string) (bool, bool) { return false, true },
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ip != "ip1" || reachable || calls != 3 {
+		t.Errorf("expected (ip1, false, 3 calls), got (%s, %v, %d calls)", ip, reachable, calls)
+	}
+}
+
 func TestLenStaticIps_Empty(t *testing.T) {
 	job := &LightsailCFJob{}
 	if got := job.lenStaticIps(); got != 0 {

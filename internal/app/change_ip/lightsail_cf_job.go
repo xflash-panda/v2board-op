@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	defaultPingRetries = 3
-	defaultSleepTime   = 8 * time.Second
-	defaultBatchSize   = 3
+	defaultPingRetries    = 3
+	defaultSleepTime      = 8 * time.Second
+	defaultBatchSize      = 3
+	defaultRotateAttempts = 3
 )
 
 type Ip *string
@@ -398,41 +399,119 @@ func (m *LightsailCFJob) processBannedItem(bannedItem *api.BannedHostInfo) {
 	}
 	log.Infof("found instance: %s", bannedItem)
 
-	newIp, err := m.processInstance(instance.(types.Instance))
+	inst := instance.(types.Instance)
+	lightsailClient, err := m.lightsailSrv.GetClient()
 	if err != nil {
-		log.Errorf("Process instance failed: %s", err)
+		m.stats.fail.Add(1)
+		log.Errorf("get lightsail client failed for %s: %s", bannedItem, err)
 		return
 	}
 
-	log.Infof("%s Getting a new ip: %s", bannedItem, *newIp)
+	// rotate performs one IP change. It refreshes the instance from AWS first:
+	// a prior rotation mutates IsStaticIp / PublicIpAddress on the AWS side and
+	// processInstance branches on those fields, so a stale struct would pick the
+	// wrong path (e.g. try to release a static IP that was already released).
+	rotate := func() (string, error) {
+		out, err := lightsailClient.GetInstance(context.TODO(), &lightsail.GetInstanceInput{InstanceName: inst.Name})
+		if err != nil {
+			return "", fmt.Errorf("refresh instance %s: %s", *inst.Name, err)
+		}
+		if out.Instance == nil {
+			return "", fmt.Errorf("refresh instance %s: empty response", *inst.Name)
+		}
+		newIp, err := m.processInstance(*out.Instance)
+		if err != nil {
+			return "", err
+		}
+		if newIp == nil {
+			return "", fmt.Errorf("instance %s returned nil ip", *inst.Name)
+		}
+		return *newIp, nil
+	}
 
-	// Verify new IP is reachable
-	checkItem := &api.BannedHostInfo{IP: *newIp, Port: bannedItem.Port}
-	pingResult := m.batchPing([]*api.BannedHostInfo{checkItem})
-	if pingResult[fmt.Sprintf("%s:%d", *newIp, bannedItem.Port)] {
-		m.stats.success.Add(1)
-		log.Infof("New IP %s is reachable", *newIp)
-	} else {
+	// check reports (reachable, verifiable). verifiable is false when the ping
+	// probe itself could not be run (API down); callers must not keep rotating
+	// on an unverifiable verdict, since each rotation is expensive.
+	check := func(ip string) (bool, bool) {
+		res := m.batchPing([]*api.BannedHostInfo{{IP: ip, Port: bannedItem.Port}})
+		if res == nil {
+			return false, false
+		}
+		return res[fmt.Sprintf("%s:%d", ip, bannedItem.Port)], true
+	}
+
+	newIp, reachable, err := rotateUntilReachable(defaultRotateAttempts, rotate, check)
+	if newIp == "" {
 		m.stats.fail.Add(1)
-		log.Warnf("New IP %s is NOT reachable", *newIp)
+		log.Errorf("Failed to obtain a new IP for %s: %s", bannedItem, err)
+		return
+	}
+	if reachable {
+		m.stats.success.Add(1)
+		log.Infof("%s got a reachable new ip: %s", bannedItem, newIp)
+	} else {
+		// New IP still not confirmed reachable after exhausting attempts. Commit
+		// it anyway: the instance's old IP is already gone, so leaving DNS on the
+		// old address would strand clients. fail is counted so Run reruns.
+		m.stats.fail.Add(1)
+		log.Warnf("%s new ip %s not confirmed reachable; committing anyway", bannedItem, newIp)
 	}
 
-	err = m.changeIp(bannedItem, *newIp)
-	if err != nil {
+	if err := m.changeIp(bannedItem, newIp); err != nil {
 		log.Errorf("Change ip error: %s", err)
+	} else {
+		log.Infof("change ip success: %s -> %s", bannedItem.IP, newIp)
 	}
-	log.Infoln("change ip success")
-	if err = m.dropDnsRecord(host, bannedItem.IP); err != nil {
+	if err := m.dropDnsRecord(host, bannedItem.IP); err != nil {
 		log.Error(err)
 	} else {
 		log.Infof("delete dns record {%s: %s}", host, bannedItem.IP)
 	}
-	err = m.createDnsRecord(host, *newIp)
-	if err != nil {
+	if err := m.createDnsRecord(host, newIp); err != nil {
 		log.Error(err)
 	} else {
-		log.Infof("Add dns record %s : %s", host, *newIp)
+		log.Infof("Add dns record %s : %s", host, newIp)
 	}
+}
+
+// rotateUntilReachable rotates an instance's IP until a reachable IP is found
+// or attempts are exhausted. rotate performs one IP change and returns the new
+// IP; check reports whether an IP is reachable and whether that verdict is
+// trustworthy (verifiable=false means the probe itself failed).
+//
+// Returns:
+//   - (ip, true, nil): a reachable IP was found.
+//   - (lastIp, false, nil): every obtained IP was blocked, or reachability could
+//     not be verified. lastIp is the most recent IP obtained; callers still
+//     commit it because the instance's old IP is already gone.
+//   - ("", false, err): no attempt produced an IP; err is the last rotate error.
+func rotateUntilReachable(maxAttempts int, rotate func() (string, error), check func(string) (reachable, verifiable bool)) (string, bool, error) {
+	var lastIp string
+	var lastErr error
+	haveIp := false
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ip, err := rotate()
+		if err != nil {
+			lastErr = err
+			log.Errorf("rotate attempt %d/%d failed: %s", attempt, maxAttempts, err)
+			continue
+		}
+		lastIp = ip
+		haveIp = true
+		reachable, verifiable := check(ip)
+		if reachable {
+			return ip, true, nil
+		}
+		if !verifiable {
+			log.Warnf("new ip %s reachability unverifiable (attempt %d/%d); stop rotating", ip, attempt, maxAttempts)
+			return ip, false, nil
+		}
+		log.Warnf("new ip %s is NOT reachable (attempt %d/%d)", ip, attempt, maxAttempts)
+	}
+	if !haveIp {
+		return "", false, lastErr
+	}
+	return lastIp, false, nil
 }
 
 func (m *LightsailCFJob) dropDnsRecord(host, ip string) error {
